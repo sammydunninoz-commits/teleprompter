@@ -3,6 +3,7 @@ import type { DataConnection, Peer } from 'peerjs'
 import { useStore } from '../store/useStore'
 import { estimateRuntimeSec, nowMs, offsetAt } from '../scroll/transport'
 import {
+  ICE_SERVERS,
   makePairingCode,
   peerIdFor,
   type RemoteCommand,
@@ -123,11 +124,17 @@ export function usePeerHost() {
     try {
       const { default: PeerCtor } = await import('peerjs')
       if (disposedRef.current) return
-      const peer = new PeerCtor(peerIdFor(code))
+      const peer = new PeerCtor(peerIdFor(code), { config: { iceServers: ICE_SERVERS } })
       peerRef.current = peer
 
       peer.on('open', () => {
         setState((s) => ({ ...s, status: 'waiting', code }))
+      })
+
+      // The broker drops idle sockets. Without this the console silently stops
+      // being reachable after a while and the QR on screen becomes a lie.
+      peer.on('disconnected', () => {
+        if (!disposedRef.current) peer.reconnect()
       })
 
       peer.on('connection', (conn) => {

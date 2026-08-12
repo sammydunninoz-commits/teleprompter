@@ -74,3 +74,42 @@ export function makePairingCode(): string {
 export function peerIdFor(code: string): string {
   return `autocue-remote-${code}`
 }
+
+/**
+ * ICE configuration for both ends of the link.
+ *
+ * STUN only, which is all that is available without an account. STUN lets two
+ * peers discover their public address and connect directly — but it CANNOT
+ * traverse a symmetric NAT, which is what most corporate wifi and some mobile
+ * carriers use. In that case the peers find each other on the broker and then
+ * fail to open a data channel, which surfaces as `stage: 'channel'` below.
+ *
+ * The fix for that is a TURN relay, which needs credentials from a provider
+ * (Metered, ExpressTURN and Cloudflare all have free tiers). Drop them in here
+ * and both the console and the phone pick them up:
+ *
+ *   { urls: 'turn:<host>:443?transport=tcp', username: '…', credential: '…' }
+ *
+ * Port 443 over TCP is the variant most likely to survive a restrictive
+ * firewall, so prefer it if the provider offers a choice.
+ */
+export const ICE_SERVERS: RTCIceServer[] = [
+  { urls: 'stun:stun.l.google.com:19302' },
+  { urls: 'stun:stun1.l.google.com:19302' },
+]
+
+/**
+ * How far the phone got before it failed. Each stage implicates a different
+ * layer, so the remote reports this rather than one undifferentiated error:
+ *
+ *  - `broker`  — never reached the signalling server. Firewall or broker outage;
+ *                a TURN relay would NOT help.
+ *  - `peer`    — reached the broker, but no console is listening on that code.
+ *                Stale QR, or the console ended the session.
+ *  - `channel` — found the console but no data channel opened within the
+ *                timeout. This is the NAT/firewall case that needs TURN.
+ */
+export type FailureStage = 'broker' | 'peer' | 'channel'
+
+/** How long to wait for the data channel before calling it a NAT failure. */
+export const CHANNEL_TIMEOUT_MS = 20_000

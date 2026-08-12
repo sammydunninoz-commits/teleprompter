@@ -3,15 +3,25 @@ import type { DataConnection, Peer } from 'peerjs'
 import { useWakeLock } from '../hooks/useWakeLock'
 import { formatDuration } from '../scroll/transport'
 import {
+  CHANNEL_TIMEOUT_MS,
+  ICE_SERVERS,
   peerIdFor,
   WPM_MAX,
   WPM_MIN,
   WPM_STEP,
+  type FailureStage,
   type RemoteCommand,
   type RemoteState,
 } from './protocol'
 
 type Phase = 'connecting' | 'live' | 'lost' | 'error'
+
+interface Failure {
+  stage: FailureStage
+  /** PeerJS error type where there was one (e.g. 'peer-unavailable'). */
+  code: string | null
+  detail: string | null
+}
 
 /**
  * The handheld remote (rendered for `?remote=<code>`).
@@ -23,8 +33,10 @@ type Phase = 'connecting' | 'live' | 'lost' | 'error'
  */
 export default function RemoteView({ code }: { code: string }) {
   const [phase, setPhase] = useState<Phase>('connecting')
-  const [error, setError] = useState<string | null>(null)
+  const [failure, setFailure] = useState<Failure | null>(null)
   const [remote, setRemote] = useState<RemoteState | null>(null)
+  /** Progress text while connecting, so a hang is legible rather than mute. */
+  const [progress, setProgress] = useState('Reaching the signalling server…')
 
   const connRef = useRef<DataConnection | null>(null)
   const peerRef = useRef<Peer | null>(null)
@@ -43,18 +55,44 @@ export default function RemoteView({ code }: { code: string }) {
 
   useEffect(() => {
     let disposed = false
+    let brokerOpen = false
+    let channelOpen = false
+    let timer: number | undefined
+
+    const fail = (stage: FailureStage, code: string | null, detail: string | null) => {
+      if (disposed || channelOpen) return
+      window.clearTimeout(timer)
+      setFailure({ stage, code, detail })
+      setPhase('error')
+    }
 
     async function connect() {
       try {
         const { default: PeerCtor } = await import('peerjs')
         if (disposed) return
-        const peer = new PeerCtor()
+        const peer = new PeerCtor({ config: { iceServers: ICE_SERVERS } })
         peerRef.current = peer
 
+        // If nothing has opened by the deadline, work out how far we actually
+        // got and blame the right layer. A silent hang here is the classic
+        // symmetric-NAT signature: both peers are on the broker, neither can
+        // reach the other directly.
+        timer = window.setTimeout(() => {
+          if (!brokerOpen) fail('broker', 'timeout', 'No response from the signalling server.')
+          else fail('channel', 'timeout', 'Found the console, but no direct connection opened.')
+        }, CHANNEL_TIMEOUT_MS)
+
         peer.on('open', () => {
+          brokerOpen = true
+          setProgress('Looking for the console…')
           const conn = peer.connect(peerIdFor(code), { reliable: true })
           connRef.current = conn
-          conn.on('open', () => setPhase('live'))
+
+          conn.on('open', () => {
+            channelOpen = true
+            window.clearTimeout(timer)
+            setPhase('live')
+          })
           conn.on('data', (data) => {
             const msg = data as RemoteState
             if (msg?.type !== 'state') return
@@ -63,32 +101,36 @@ export default function RemoteView({ code }: { code: string }) {
             if (now > holdWpmUntilRef.current) setLocalWpm(null)
             if (now > holdScrubUntilRef.current) setLocalScrub(null)
           })
-          conn.on('close', () => setPhase('lost'))
-          conn.on('error', (e) => {
-            setError(e.message)
-            setPhase('error')
+          conn.on('close', () => {
+            if (channelOpen) setPhase('lost')
+          })
+          conn.on('error', (e) => fail('channel', e.type ?? null, e.message))
+
+          // Surface ICE progress: it is the only visible difference between
+          // "still gathering candidates" and "gave up".
+          const pc = (conn as unknown as { peerConnection?: RTCPeerConnection }).peerConnection
+          pc?.addEventListener('iceconnectionstatechange', () => {
+            const st = pc.iceConnectionState
+            if (st === 'checking') setProgress('Negotiating a direct connection…')
+            if (st === 'failed') {
+              fail('channel', 'ice-failed', 'Direct connection blocked by the network.')
+            }
           })
         })
 
         peer.on('error', (e) => {
-          // The overwhelmingly common case is a stale code: the console session
-          // ended, so the namespaced peer id no longer exists on the broker.
-          setError(
-            e.type === 'peer-unavailable'
-              ? 'That pairing code is no longer active. Re-scan the QR on the console.'
-              : e.message,
-          )
-          setPhase('error')
+          if (e.type === 'peer-unavailable') fail('peer', e.type, e.message)
+          else fail(brokerOpen ? 'channel' : 'broker', e.type ?? null, e.message)
         })
       } catch (e) {
-        setError((e as Error).message)
-        setPhase('error')
+        fail('broker', 'load-failed', (e as Error).message)
       }
     }
 
     connect()
     return () => {
       disposed = true
+      window.clearTimeout(timer)
       connRef.current?.close()
       peerRef.current?.destroy()
       connRef.current = null
@@ -107,7 +149,7 @@ export default function RemoteView({ code }: { code: string }) {
   }, [])
 
   if (phase !== 'live') {
-    return <ConnectionScreen phase={phase} error={error} code={code} />
+    return <ConnectionScreen phase={phase} failure={failure} code={code} progress={progress} />
   }
 
   const playing = remote?.playing ?? false
@@ -231,24 +273,47 @@ function StepBtn({ children, onClick }: { children: React.ReactNode; onClick: ()
   )
 }
 
+/** Plain-language cause and next step for each failure stage. */
+const STAGE_HELP: Record<FailureStage, { title: string; body: string }> = {
+  broker: {
+    title: 'Couldn’t reach the pairing server',
+    body: 'This phone can’t get to the signalling server at all — usually a firewall, a captive-portal wifi, or the public broker being down. Try the phone on mobile data.',
+  },
+  peer: {
+    title: 'That pairing code isn’t active',
+    body: 'No console is listening on this code. The session was ended or the QR is from an older one — start a new remote session on the console and re-scan.',
+  },
+  channel: {
+    title: 'Network blocked the direct link',
+    body: 'The phone found the console but the two can’t open a direct connection. This is a restrictive network (most corporate wifi, and some mobile carriers) and needs a TURN relay to work around. Try both devices on the same ordinary wifi, or the phone on mobile data.',
+  },
+}
+
 function ConnectionScreen({
   phase,
-  error,
+  failure,
   code,
+  progress,
 }: {
   phase: Phase
-  error: string | null
+  failure: Failure | null
   code: string
+  progress: string
 }) {
+  const help = failure ? STAGE_HELP[failure.stage] : null
+
   return (
     <div className="flex h-full flex-col items-center justify-center gap-3 bg-panel p-8 text-center text-neutral-300">
       <div className="text-sm font-semibold text-accent">autocue remote</div>
+
       {phase === 'connecting' && (
         <>
           <div className="text-lg">Connecting…</div>
-          <div className="text-xs text-neutral-500">Pairing code {code}</div>
+          <div className="text-sm text-neutral-500">{progress}</div>
+          <div className="text-xs text-neutral-600">Pairing code {code}</div>
         </>
       )}
+
       {phase === 'lost' && (
         <>
           <div className="text-lg">Disconnected</div>
@@ -257,12 +322,21 @@ function ConnectionScreen({
           </p>
         </>
       )}
-      {phase === 'error' && (
+
+      {phase === 'error' && help && (
         <>
-          <div className="text-lg text-red-400">Couldn’t connect</div>
-          <p className="max-w-xs text-sm text-neutral-500">{error}</p>
+          <div className="text-lg text-red-400">{help.title}</div>
+          <p className="max-w-xs text-sm text-neutral-400">{help.body}</p>
+          {/* Exact stage + error type, so a failure can be reported precisely
+              rather than as "it didn't work". */}
+          <p className="max-w-xs font-mono text-[11px] leading-relaxed text-neutral-600">
+            stage: {failure!.stage}
+            {failure!.code ? ` · ${failure!.code}` : ''}
+            {failure!.detail ? <><br />{failure!.detail}</> : null}
+          </p>
         </>
       )}
+
       {phase !== 'connecting' && (
         <button
           onClick={() => window.location.reload()}

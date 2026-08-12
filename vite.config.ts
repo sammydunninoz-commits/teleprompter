@@ -13,7 +13,7 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg', 'fonts/*.woff2'],
       manifest: {
-        name: 'autocue Teleprompter',
+        name: 'autocue',
         short_name: 'autocue',
         description: 'autocue teleprompter for video production',
         theme_color: '#0a0a0a',

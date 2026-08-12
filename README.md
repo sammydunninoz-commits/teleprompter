@@ -1,4 +1,4 @@
-# autocue Teleprompter (PWA)
+# autocue (PWA)
 
 A progressive web app for video-production auto-cue teleprompting. Replaces
 "Imaginary Teleprompter" with proper multi-monitor architecture, in-app editing

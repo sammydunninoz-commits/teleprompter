@@ -57,13 +57,26 @@ never the script body and never director flags. Commands go through the ordinary
 store actions, so a phone press reaches the talent screens by exactly the same
 path as a click on the desktop transport bar.
 
-Pairing uses the public PeerJS broker for signalling, after which commands travel
-directly device-to-device. Both ends therefore need internet to *pair*, which is
-the one place this feature departs from the app's otherwise fully-offline
-promise. The pairing code dies with the session, so an old QR photo is useless.
+Commands travel over a relay (MQTT on WebSocket-Secure), not peer-to-peer. That
+is a deliberate reversal: the original WebRTC build could not be made to work on
+a corporate wifi, because symmetric NAT gives the two devices no direct path and
+free no-signup TURN relays no longer exist. iOS Safari compounds it with
+long-standing data-channel bugs. An outbound TLS connection has neither problem,
+which is why iPhones work now.
 
-> Requires a secure context (HTTPS, or `localhost`). Testing over plain HTTP on a
-> LAN IP will fail on iOS.
+Because a third-party broker carries the traffic, we don't trust it: every
+payload is AES-GCM encrypted under a key derived (PBKDF2) from the pairing code,
+which only ever travels in the QR. The broker sees ciphertext and cannot forge a
+command. The script body is never sent at all — only transport state.
+
+`relay.ts` holds a *list* of public brokers and uses the first that answers,
+after the original single choice turned out to be dead on arrival. The console
+publishes its winner into the QR (`&b=…`) so the phone joins the same one. Both
+ends need internet, which is the one place this feature departs from the app's
+otherwise fully-offline promise. The pairing code dies with the session.
+
+> Requires a secure context (HTTPS, or `localhost`) for the Wake Lock and
+> clipboard bits. Plain HTTP on a LAN IP still relays fine.
 
 ### Voice tracking & director notes usage
 
@@ -124,9 +137,10 @@ src/
   channel/
     channels.ts     TWO separate BroadcastChannels: talent vs director (never merged)
   remote/
-    protocol.ts     Phone-remote wire types + pairing-code generation
-    usePeerHost.ts  Operator side: PeerJS host, applies commands via store actions
-    RemoteView.tsx  The handheld surface itself (?remote=<code>)
+    protocol.ts      Phone-remote wire types + pairing-code generation
+    relay.ts         Encrypted MQTT-over-WSS transport, with broker fallback
+    useRemoteHost.ts Console side: applies commands via the shared store actions
+    RemoteView.tsx   The handheld surface itself (?remote=<code>&b=<broker>)
   lib/
     features.ts     Build-time switches (voice off, remote on)
   scroll/

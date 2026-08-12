@@ -7,6 +7,7 @@ import {
   duplicateProject,
 } from '../store/db'
 import { exportDocx } from '../io/exportDocx'
+import { exportProjectJson } from '../io/projectFile'
 import { flash } from '../lib/flash'
 import { useDialog } from './useDialog'
 import type { Project } from '../store/types'
@@ -87,7 +88,7 @@ export default function ProjectSidebar({
     flash(`Duplicated as “${name}”`)
   }
 
-  async function onExport(p: Project) {
+  async function onExportDocx(p: Project) {
     setBusyId(p.id)
     try {
       await exportDocx(p.doc, p.name)
@@ -97,6 +98,12 @@ export default function ProjectSidebar({
     } finally {
       setBusyId(null)
     }
+  }
+
+  /** Native project format — re-importable via Load Script, unlike the .docx. */
+  function onExportJson(p: Project) {
+    exportProjectJson(p)
+    flash(`Exported “${p.name}.json”`)
   }
 
   async function onDelete(p: Project) {
@@ -187,11 +194,14 @@ export default function ProjectSidebar({
                   Duplicate
                 </RowBtn>
                 <RowBtn
-                  onClick={() => onExport(p)}
-                  title="Export as Word .docx"
+                  onClick={() => onExportDocx(p)}
+                  title="Export as a Word document (.docx)"
                   disabled={busyId === p.id}
                 >
-                  {busyId === p.id ? '…' : 'Export'}
+                  {busyId === p.id ? '…' : '.docx'}
+                </RowBtn>
+                <RowBtn onClick={() => onExportJson(p)} title="Export as a project file (.json)">
+                  .json
                 </RowBtn>
                 <RowBtn onClick={() => onDelete(p)} title="Delete" danger>
                   ✕

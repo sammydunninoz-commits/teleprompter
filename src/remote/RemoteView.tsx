@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { DataConnection, Peer } from 'peerjs'
 import { useWakeLock } from '../hooks/useWakeLock'
 import { formatDuration } from '../scroll/transport'
+import { connectRelay, type BrokerId, type RelayLink } from './relay'
 import {
-  CHANNEL_TIMEOUT_MS,
-  ICE_SERVERS,
-  peerIdFor,
+  CONSOLE_TIMEOUT_MS,
+  STALE_MS,
   WPM_MAX,
   WPM_MIN,
   WPM_STEP,
@@ -31,15 +30,14 @@ interface Failure {
  * dark studio — hence the oversized hit targets and the absence of anything
  * that could be pressed by accident.
  */
-export default function RemoteView({ code }: { code: string }) {
+export default function RemoteView({ code, brokerId }: { code: string; brokerId?: BrokerId }) {
   const [phase, setPhase] = useState<Phase>('connecting')
   const [failure, setFailure] = useState<Failure | null>(null)
   const [remote, setRemote] = useState<RemoteState | null>(null)
   /** Progress text while connecting, so a hang is legible rather than mute. */
   const [progress, setProgress] = useState('Reaching the signalling server…')
 
-  const connRef = useRef<DataConnection | null>(null)
-  const peerRef = useRef<Peer | null>(null)
+  const linkRef = useRef<RelayLink<RemoteState> | null>(null)
   /**
    * While the operator is dragging nothing and the phone is dragging a slider,
    * incoming snapshots would fight the thumb. We ignore the remote value for
@@ -55,97 +53,81 @@ export default function RemoteView({ code }: { code: string }) {
 
   useEffect(() => {
     let disposed = false
-    let brokerOpen = false
-    let channelOpen = false
+    let live = false
     let timer: number | undefined
+    let hello: number | undefined
+    let watchdog: number | undefined
+    let lastSeen = 0
 
     const fail = (stage: FailureStage, code: string | null, detail: string | null) => {
-      if (disposed || channelOpen) return
+      if (disposed || live) return
       window.clearTimeout(timer)
       setFailure({ stage, code, detail })
       setPhase('error')
     }
 
     async function connect() {
+      let link: RelayLink<RemoteState>
       try {
-        const { default: PeerCtor } = await import('peerjs')
-        if (disposed) return
-        const peer = new PeerCtor({ config: { iceServers: ICE_SERVERS } })
-        peerRef.current = peer
-
-        // If nothing has opened by the deadline, work out how far we actually
-        // got and blame the right layer. A silent hang here is the classic
-        // symmetric-NAT signature: both peers are on the broker, neither can
-        // reach the other directly.
-        timer = window.setTimeout(() => {
-          if (!brokerOpen) fail('broker', 'timeout', 'No response from the signalling server.')
-          else fail('channel', 'timeout', 'Found the console, but no direct connection opened.')
-        }, CHANNEL_TIMEOUT_MS)
-
-        peer.on('open', () => {
-          brokerOpen = true
-          setProgress('Looking for the console…')
-          const conn = peer.connect(peerIdFor(code), { reliable: true })
-          connRef.current = conn
-
-          conn.on('open', () => {
-            channelOpen = true
-            window.clearTimeout(timer)
-            setPhase('live')
-          })
-          conn.on('data', (data) => {
-            const msg = data as RemoteState
-            if (msg?.type !== 'state') return
-            setRemote(msg)
-            const now = performance.now()
-            if (now > holdWpmUntilRef.current) setLocalWpm(null)
-            if (now > holdScrubUntilRef.current) setLocalScrub(null)
-          })
-          conn.on('close', () => {
-            if (channelOpen) setPhase('lost')
-          })
-          conn.on('error', (e) => fail('channel', e.type ?? null, e.message))
-
-          // Surface ICE progress: it is the only visible difference between
-          // "still gathering candidates" and "gave up".
-          const pc = (conn as unknown as { peerConnection?: RTCPeerConnection }).peerConnection
-          pc?.addEventListener('iceconnectionstatechange', () => {
-            const st = pc.iceConnectionState
-            if (st === 'checking') setProgress('Negotiating a direct connection…')
-            if (st === 'failed') {
-              fail('channel', 'ice-failed', 'Direct connection blocked by the network.')
-            }
-          })
-        })
-
-        peer.on('error', (e) => {
-          if (e.type === 'peer-unavailable') fail('peer', e.type, e.message)
-          else fail(brokerOpen ? 'channel' : 'broker', e.type ?? null, e.message)
-        })
+        link = await connectRelay<RemoteState>(code, 'remote', brokerId)
       } catch (e) {
-        fail('broker', 'load-failed', (e as Error).message)
+        fail('relay', 'connect-failed', (e as Error).message)
+        return
       }
+      if (disposed) {
+        link.close()
+        return
+      }
+      linkRef.current = link
+
+      link.onMessage((msg) => {
+        if (msg?.type !== 'state') return
+        lastSeen = performance.now()
+        if (!live) {
+          live = true
+          window.clearTimeout(timer)
+          window.clearInterval(hello)
+          setPhase('live')
+        }
+        setRemote(msg)
+        const now = performance.now()
+        if (now > holdWpmUntilRef.current) setLocalWpm(null)
+        if (now > holdScrubUntilRef.current) setLocalScrub(null)
+      })
+
+      setProgress('Looking for the console…')
+
+      // Announce ourselves and keep asking until answered: the console may not
+      // have been listening at the instant we first spoke.
+      const announce = () => link.send({ type: 'hello' })
+      announce()
+      hello = window.setInterval(announce, 1000)
+
+      timer = window.setTimeout(() => {
+        window.clearInterval(hello)
+        fail('console', 'timeout', 'No console answered on this pairing code.')
+      }, CONSOLE_TIMEOUT_MS)
+
+      // MQTT gives no connection-level signal that the console went away, so
+      // infer it from the snapshot stream drying up.
+      watchdog = window.setInterval(() => {
+        if (live && performance.now() - lastSeen > STALE_MS) setPhase('lost')
+      }, 1000)
     }
 
     connect()
     return () => {
       disposed = true
       window.clearTimeout(timer)
-      connRef.current?.close()
-      peerRef.current?.destroy()
-      connRef.current = null
-      peerRef.current = null
+      window.clearInterval(hello)
+      window.clearInterval(watchdog)
+      linkRef.current?.close()
+      linkRef.current = null
     }
-  }, [code])
+  }, [code, brokerId])
 
   const send = useCallback((cmd: RemoteCommand) => {
-    const c = connRef.current
-    if (!c?.open) return
-    try {
-      c.send(cmd)
-    } catch {
-      /* link dropped; the close handler moves us to the 'lost' phase */
-    }
+    linkRef.current?.send(cmd)
   }, [])
 
   if (phase !== 'live') {
@@ -275,17 +257,13 @@ function StepBtn({ children, onClick }: { children: React.ReactNode; onClick: ()
 
 /** Plain-language cause and next step for each failure stage. */
 const STAGE_HELP: Record<FailureStage, { title: string; body: string }> = {
-  broker: {
-    title: 'Couldn’t reach the pairing server',
-    body: 'This phone can’t get to the signalling server at all — usually a firewall, a captive-portal wifi, or the public broker being down. Try the phone on mobile data.',
+  relay: {
+    title: 'Couldn’t reach the relay',
+    body: 'This phone can’t open a connection to the relay server — usually a captive-portal wifi that needs signing in to, or no data at all. Try mobile data, or re-join the wifi.',
   },
-  peer: {
+  console: {
     title: 'That pairing code isn’t active',
-    body: 'No console is listening on this code. The session was ended or the QR is from an older one — start a new remote session on the console and re-scan.',
-  },
-  channel: {
-    title: 'Network blocked the direct link',
-    body: 'The phone found the console but the two can’t open a direct connection. This is a restrictive network (most corporate wifi, and some mobile carriers) and needs a TURN relay to work around. Try both devices on the same ordinary wifi, or the phone on mobile data.',
+    body: 'The relay is fine, but no console answered on this code. The session was ended, or the QR is from an older one — start a new remote session on the console and re-scan.',
   },
 }
 

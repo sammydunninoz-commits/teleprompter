@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { remoteUrlFor, type PeerHostState } from '../remote/usePeerHost'
+import { remoteUrlFor, type RemoteHostState } from '../remote/useRemoteHost'
 
 /**
  * Operator panel for the phone remote: starts a pairing session and renders the
@@ -12,11 +12,11 @@ export default function RemotePanel({
   start,
   stop,
 }: {
-  state: PeerHostState
+  state: RemoteHostState
   start: () => void
   stop: () => void
 }) {
-  const url = state.code ? remoteUrlFor(state.code) : null
+  const url = state.code && state.brokerId ? remoteUrlFor(state.code, state.brokerId) : null
 
   return (
     <div className="thin-scroll flex h-full flex-col overflow-auto p-4 text-sm">
@@ -94,9 +94,10 @@ export default function RemotePanel({
           </button>
 
           <p className="mt-4 text-[11px] leading-relaxed text-neutral-500">
-            Anyone with this code can drive the prompter while the session is open. Pairing goes
-            through the public PeerJS broker, so both devices need internet — commands themselves
-            travel directly phone-to-console.
+            Anyone with this code can drive the prompter while the session is open. Commands relay
+            through a public broker on port 443 — so it works on locked-down wifi and on iPhones —
+            and every message is encrypted with a key derived from the code, which only ever
+            travels in the QR. Both devices need internet.
           </p>
         </>
       )}

@@ -4,7 +4,7 @@ import VoicePanel from './VoicePanel'
 import NotesPanel from './NotesPanel'
 import RemotePanel from './RemotePanel'
 import { useVoiceController } from '../voice/useVoiceController'
-import { usePeerHost } from '../remote/usePeerHost'
+import { useRemoteHost } from '../remote/useRemoteHost'
 import { useDirectorChannel } from '../hooks/useDirectorChannel'
 import { useNotesStore } from '../store/useNotesStore'
 import { FEATURES } from '../lib/features'
@@ -17,7 +17,7 @@ export default function PromptSidebar() {
   // The voice controller and the peer host live here, not in their panels, so
   // an in-progress session survives switching tabs while in Prompt mode.
   const controller = useVoiceController(FEATURES.voice)
-  const host = usePeerHost()
+  const host = useRemoteHost()
   useDirectorChannel()
   const flagCount = useNotesStore((s) => s.flags.length)
 

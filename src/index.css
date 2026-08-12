@@ -1,0 +1,137 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Atkinson Hyperlegible — bundled locally for offline use.
+ * Drop the .woff2 files into /public/fonts/ to enable; until then the
+ * prompter font stack falls back gracefully to system-ui (see tailwind config).
+ */
+@font-face {
+  font-family: 'Atkinson Hyperlegible';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: local('Atkinson Hyperlegible'),
+    url('/fonts/atkinson-regular.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Atkinson Hyperlegible';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: local('Atkinson Hyperlegible Bold'),
+    url('/fonts/atkinson-bold.woff2') format('woff2');
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: #0a0a0a;
+  color: #e5e5e5;
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+/* Prompter document typography (shared by editor preview + display) */
+.prompter-doc {
+  font-family: 'Atkinson Hyperlegible', system-ui, sans-serif;
+  text-align: left;
+  text-wrap: pretty;
+}
+.prompter-doc p {
+  /* A real paragraph gap so the script reads like the source document (imported
+     Word paragraphs keep their separation). The voice-follow coasts through the
+     gap at the steady pace, so a visible break no longer hurts pacing. */
+  margin: 0 0 0.8em;
+}
+
+/* Question blocks — distinct color, "Q:" affordance handled in render */
+.prompter-doc .pt-question {
+  color: var(--question-color, #fbbf24);
+  font-weight: 600;
+}
+.prompter-doc .pt-question::before {
+  content: 'Q: ';
+  opacity: 0.7;
+}
+
+/* Director-only note block — never rendered on talent display */
+.prompter-doc .pt-note {
+  color: #9ca3af;
+  font-style: italic;
+  border-left: 3px solid #4b5563;
+  padding-left: 0.6em;
+  font-size: 0.7em;
+}
+
+/* Persistent highlight mark */
+.prompter-doc .pt-highlight {
+  border-radius: 3px;
+  padding: 0 0.08em;
+}
+
+/* Pronunciation hint — small phonetic text rendered above a highlighted word
+   (e.g. names / technical terms). Driven by the data-pron attribute. */
+.prompter-doc [data-pron] {
+  position: relative;
+}
+.prompter-doc [data-pron]::before {
+  content: attr(data-pron);
+  position: absolute;
+  left: 50%;
+  bottom: 100%;
+  transform: translateX(-50%);
+  font-size: 0.42em;
+  line-height: 1;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  opacity: 0.85;
+  color: #9ca3af;
+  pointer-events: none;
+}
+
+/* Live (session) highlight — added at runtime, not saved in the doc */
+.prompter-doc .live-highlight {
+  background: #f59e0b;
+  color: #0a0a0a;
+  border-radius: 3px;
+  box-shadow: 0 0 0 2px #f59e0b;
+}
+
+/* TipTap editor surface */
+.ProseMirror {
+  outline: none;
+  min-height: 60vh;
+}
+.ProseMirror:focus {
+  outline: none;
+}
+.ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: #6b7280;
+  pointer-events: none;
+  height: 0;
+}
+
+/* Thin scrollbars in dark UI panels */
+.thin-scroll::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.thin-scroll::-webkit-scrollbar-thumb {
+  background: #333;
+  border-radius: 4px;
+}

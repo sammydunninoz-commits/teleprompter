@@ -1,0 +1,47 @@
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+import { VitePWA } from 'vite-plugin-pwa'
+
+// https://vite.dev/config/
+export default defineConfig({
+  // Served from https://<user>.github.io/teleprompter/, so every asset URL needs
+  // the repo name prefix. Keep in sync with the repo name if it is ever renamed.
+  base: '/teleprompter/',
+  plugins: [
+    react(),
+    VitePWA({
+      registerType: 'autoUpdate',
+      includeAssets: ['favicon.svg', 'fonts/*.woff2'],
+      manifest: {
+        name: 'autocue Teleprompter',
+        short_name: 'autocue',
+        description: 'autocue teleprompter for video production',
+        theme_color: '#0a0a0a',
+        background_color: '#0a0a0a',
+        display: 'standalone',
+        orientation: 'landscape',
+        scope: '/teleprompter/',
+        start_url: '/teleprompter/',
+        icons: [
+          { src: 'favicon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' },
+          { src: 'favicon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'maskable' },
+        ],
+      },
+      workbox: {
+        // App shell + all local assets (incl. bundled fonts) precached for full offline use on set.
+        globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
+        cleanupOutdatedCaches: true,
+        clientsClaim: true,
+      },
+      devOptions: {
+        enabled: false,
+      },
+    }),
+  ],
+  server: {
+    port: 5173,
+    // Listen on all network interfaces so others on the same network can reach
+    // the dev server at http://<this-machine-ip>:5173 (not just localhost).
+    host: true,
+  },
+})

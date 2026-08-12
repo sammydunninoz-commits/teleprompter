@@ -1,3 +1,5 @@
+import type { TransportCommand } from '../scroll/commands'
+
 /**
  * Phone-remote wire protocol (operator console ⇄ handheld remote).
  *
@@ -14,17 +16,12 @@
  *    progress figure from the state it was last told, the same way displays do.
  */
 
-/** Commands the phone sends to the operator console. */
-export type RemoteCommand =
-  | { type: 'toggle' }
-  | { type: 'play' }
-  | { type: 'pause' }
-  | { type: 'top' }
-  | { type: 'wpm'; wpm: number }
-  /** Absolute scroll offset in px, as reported by the last `RemoteState`. */
-  | { type: 'scrub'; offset: number }
-  /** Nudge the position by ± px without changing speed (e.g. after a stumble). */
-  | { type: 'nudge'; delta: number }
+/**
+ * Commands the phone sends to the operator console — the same vocabulary the
+ * transport bar and the display windows use, so all three surfaces stay in
+ * step by construction rather than by discipline.
+ */
+export type RemoteCommand = TransportCommand
 
 /** Snapshot the operator console pushes to the phone a few times a second. */
 export interface RemoteState {
@@ -43,10 +40,8 @@ export interface RemoteState {
 
 export type RemoteMessage = RemoteCommand | RemoteState
 
-/** WPM slider bounds — kept identical to the desktop TransportBar. */
-export const WPM_MIN = 40
-export const WPM_MAX = 700
-export const WPM_STEP = 5
+/** WPM slider bounds — one definition, shared with the desktop TransportBar. */
+export { WPM_MIN, WPM_MAX, WPM_STEP } from '../scroll/commands'
 
 /**
  * PeerJS ids must be a plain token, and this one is read off a phone screen if

@@ -6,6 +6,7 @@ import {
   nowMs,
   offsetAt,
 } from '../scroll/transport'
+import { applyTransportCommand, WPM_MAX, WPM_MIN, WPM_STEP } from '../scroll/commands'
 
 /**
  * Transport controls: play/pause with ease in/out (handled in CSS on the
@@ -73,6 +74,17 @@ export default function TransportBar() {
         {transport.playing ? '❚❚' : '▶'}
       </button>
 
+      {/* Back a paragraph — first press returns to the top of the paragraph
+          you're in (the usual fix after a stumble), pressing again steps back
+          to the one before. */}
+      <button
+        onClick={() => applyTransportCommand({ type: 'prev-paragraph' })}
+        className="rounded border border-edge px-2 py-1 text-sm text-neutral-200 hover:bg-edge"
+        title="Back a paragraph (Page Up)"
+      >
+        ⤴ Paragraph
+      </button>
+
       <button
         onClick={() => scrubTo(0)}
         className="rounded px-2 py-1 text-sm text-neutral-300 hover:bg-edge"
@@ -82,12 +94,14 @@ export default function TransportBar() {
       </button>
 
       <div className="flex items-center gap-2">
-        <span className="text-xs text-neutral-500">WPM</span>
+        <span className="text-xs text-neutral-500" title="Speed — ↑/↓ arrows, Shift for bigger steps">
+          WPM
+        </span>
         <input
           type="range"
-          min={40}
-          max={700}
-          step={5}
+          min={WPM_MIN}
+          max={WPM_MAX}
+          step={WPM_STEP}
           value={wpm}
           onChange={(e) => setWpm(Number(e.target.value))}
           className="w-40 accent-accent"

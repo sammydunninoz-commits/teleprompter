@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { DataConnection, Peer } from 'peerjs'
 import { useStore } from '../store/useStore'
+import { applyTransportCommand } from '../scroll/commands'
 import { estimateRuntimeSec, nowMs, offsetAt } from '../scroll/transport'
 import {
   ICE_SERVERS,
@@ -12,8 +13,6 @@ import {
 
 /** How often the console pushes a state snapshot to connected phones. */
 const PUSH_INTERVAL_MS = 250
-/** Position nudges are clamped to the document, same as the desktop scrubber. */
-const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v))
 
 export type HostStatus = 'idle' | 'starting' | 'waiting' | 'connected' | 'error'
 
@@ -53,39 +52,9 @@ export function usePeerHost() {
   /** Guards against a late async start resolving after the component unmounted. */
   const disposedRef = useRef(false)
 
-  /** Apply one phone command through the normal store actions. */
+  /** Apply one phone command. Shared with the transport bar and the displays. */
   const applyCommand = useCallback((cmd: RemoteCommand) => {
-    const s = useStore.getState()
-    const current = offsetAt(s.transport, nowMs())
-    switch (cmd.type) {
-      case 'toggle':
-        s.togglePlay(current)
-        break
-      case 'play':
-        if (!s.transport.playing) s.play(current)
-        break
-      case 'pause':
-        if (s.transport.playing) s.pause(current)
-        break
-      case 'top':
-        s.scrubTo(0)
-        break
-      case 'wpm':
-        // Trust nothing off the wire: a malformed value here would poison the
-        // px/sec conversion and run the scroll away.
-        if (Number.isFinite(cmd.wpm)) s.setWpm(clamp(Math.round(cmd.wpm), 1, 1000))
-        break
-      case 'scrub':
-        if (Number.isFinite(cmd.offset)) {
-          s.scrubTo(clamp(cmd.offset, 0, s.maxOffset || cmd.offset))
-        }
-        break
-      case 'nudge':
-        if (Number.isFinite(cmd.delta)) {
-          s.scrubTo(clamp(current + cmd.delta, 0, s.maxOffset || current + cmd.delta))
-        }
-        break
-    }
+    applyTransportCommand(cmd)
   }, [])
 
   /** Current transport snapshot for the phones. Never includes script text. */

@@ -51,6 +51,8 @@ export default function DisplayView({
   const maxOffsetRef = useRef<number>(0)
   const lastEyelineReportRef = useRef<number>(0)
   const stopsRef = useRef<number[]>([])
+  /** Scroll offset that puts each paragraph's first word on the eyeline. */
+  const paraStartsRef = useRef<number[]>([])
   const armedOffsetRef = useRef<number>(0)
   const lastWidRef = useRef<string | null>(null)
 
@@ -130,6 +132,21 @@ export default function DisplayView({
       stops.push(q.offsetTop + q.offsetHeight - topPad)
     })
     stopsRef.current = stops.sort((a, b) => a - b)
+
+    // Paragraph starts = the scroll offset that puts each block's FIRST word on
+    // the eyeline. Blocks are identified by the wid prefix (blockId#index), so
+    // this follows the document's real structure rather than guessing from line
+    // wrapping — a wrapped paragraph is still one entry. Drives "back a
+    // paragraph"; see the autocue:prevpara handler below.
+    const paraStarts: number[] = []
+    let lastBlock: string | null = null
+    wordEls.forEach((w) => {
+      const block = (w.dataset.wid ?? '').split('#')[0]
+      if (!block || block === lastBlock) return
+      lastBlock = block
+      paraStarts.push(Math.max(0, w.offsetTop + w.offsetHeight / 2 - eyelineY))
+    })
+    paraStartsRef.current = paraStarts.sort((a, b) => a - b)
 
     // End-stop: scroll until the LAST line sits centred on the eyeline, so every
     // line — including the final paragraph — can be read at the middle. Derived
@@ -236,6 +253,33 @@ export default function DisplayView({
     return () => window.removeEventListener('autocue:jumpwid', onJump as EventListener)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [anchorOnEdit, config.eyelineFrac, docVersion])
+
+  // --- Back a paragraph ---
+  // Behaves like a "previous track" button: it first sends you to the top of the
+  // paragraph you are in, which is what you want after a stumble. Press it again
+  // (or press it when already at the top) and you go to the paragraph before.
+  // The tolerance stops a press landing you a pixel above the start and reading
+  // as "already there".
+  useEffect(() => {
+    if (!anchorOnEdit) return
+    const onPrevPara = () => {
+      const starts = paraStartsRef.current
+      if (!starts.length) return
+      const current = offsetAt(useStore.getState().transport, nowMs())
+      const TOL = 12
+      // Last start strictly above the current position, ignoring one we are
+      // effectively already parked on.
+      let target = 0
+      for (const s of starts) {
+        if (s < current - TOL) target = s
+        else break
+      }
+      useStore.getState().scrubTo(clampOffset(target))
+    }
+    window.addEventListener('autocue:prevpara', onPrevPara)
+    return () => window.removeEventListener('autocue:prevpara', onPrevPara)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [anchorOnEdit])
 
   function clampOffset(off: number): number {
     // Stop when the last line reaches the eyeline (not when the content box

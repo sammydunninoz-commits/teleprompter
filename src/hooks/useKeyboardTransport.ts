@@ -1,12 +1,19 @@
 import { useEffect } from 'react'
-import { useStore } from '../store/useStore'
-import { offsetAt, nowMs } from '../scroll/transport'
+import { WPM_STEP, type TransportCommand } from '../scroll/commands'
 
 /**
  * Keyboard transport (Feature 2). Manual control always takes priority over any
- * automatic (future voice) movement. Ignored while typing in an input/editor.
+ * automatic (voice) movement. Ignored while typing in an input/editor.
+ *
+ * The hook emits COMMANDS rather than touching the store, so the same bindings
+ * serve both windows: the operator applies them directly, while a display window
+ * sends them up the control channel. Operators habitually leave focus on the
+ * talent window, where nothing used to respond at all.
  */
-export function useKeyboardTransport(enabled: boolean) {
+export function useKeyboardTransport(
+  enabled: boolean,
+  dispatch: (cmd: TransportCommand) => void,
+) {
   useEffect(() => {
     if (!enabled) return
     function onKey(e: KeyboardEvent) {
@@ -18,45 +25,47 @@ export function useKeyboardTransport(enabled: boolean) {
       )
         return
 
-      const s = useStore.getState()
-      const current = offsetAt(s.transport, nowMs())
+      // Shift takes a bigger bite out of the speed, for when a read is badly
+      // off pace rather than drifting.
+      const step = e.shiftKey ? WPM_STEP * 4 : WPM_STEP
 
       switch (e.key) {
         case ' ':
           e.preventDefault()
-          s.togglePlay(current)
+          dispatch({ type: 'toggle' })
           break
         case 'ArrowUp':
           e.preventDefault()
-          s.setWpm(Math.min(700, s.settings.wpm + 5))
+          dispatch({ type: 'wpm-step', delta: step })
           break
         case 'ArrowDown':
           e.preventDefault()
-          s.setWpm(Math.max(20, s.settings.wpm - 5))
+          dispatch({ type: 'wpm-step', delta: -step })
           break
         case 'ArrowRight':
           e.preventDefault()
-          s.scrubTo(current + 120)
+          dispatch({ type: 'nudge', delta: 120 })
           break
         case 'ArrowLeft':
           e.preventDefault()
-          s.scrubTo(Math.max(0, current - 120))
+          dispatch({ type: 'nudge', delta: -120 })
+          break
+        case 'PageUp':
+          e.preventDefault()
+          dispatch({ type: 'prev-paragraph' })
           break
         case 'Home':
           e.preventDefault()
-          s.scrubTo(0)
+          dispatch({ type: 'top' })
           break
         case 'b':
-        case 'B': {
+        case 'B':
           e.preventDefault()
-          // Toggle blackout across every display (operator preview + windows).
-          const anyOn = s.displays.some((d) => d.blackout)
-          s.blackoutAll(!anyOn)
+          dispatch({ type: 'blackout-toggle' })
           break
-        }
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [enabled])
+  }, [enabled, dispatch])
 }

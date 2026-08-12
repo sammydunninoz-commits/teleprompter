@@ -4,10 +4,12 @@ import DisplayView from './display/DisplayView'
 import TransportBar from './components/TransportBar'
 import PromptSidebar from './components/PromptSidebar'
 import ProjectSidebar from './components/ProjectSidebar'
+import ProjectActions from './components/ProjectActions'
 import { useStore } from './store/useStore'
 import { useKeyboardTransport } from './hooks/useKeyboardTransport'
 import { useWakeLock } from './hooks/useWakeLock'
 import { useOperatorBroadcaster } from './hooks/useOperatorBroadcaster'
+import { applyTransportCommand } from './scroll/commands'
 
 export default function App() {
   const mode = useStore((s) => s.mode)
@@ -21,9 +23,11 @@ export default function App() {
   const pause = useStore((s) => s.pause)
   const setLiveHighlight = useStore((s) => s.setLiveHighlight)
   const [projectsOpen, setProjectsOpen] = useState(true)
+  // Bumped after a save so the library list in the sidebar picks up the change.
+  const [libraryToken, setLibraryToken] = useState(0)
 
   // Keyboard transport active only in prompt mode; wake lock too.
-  useKeyboardTransport(mode === 'prompt')
+  useKeyboardTransport(mode === 'prompt', applyTransportCommand)
   useWakeLock(mode === 'prompt')
   // Answer state-sync requests from any display windows we've opened.
   useOperatorBroadcaster()
@@ -47,11 +51,21 @@ export default function App() {
             Prompt
           </TabBtn>
         </div>
+
+        {/* Project actions sit at the right-hand end of the top bar; the left
+            sidebar is the library alone. */}
+        <div className="ml-auto">
+          <ProjectActions onLibraryChanged={() => setLibraryToken((n) => n + 1)} />
+        </div>
       </header>
 
       {/* Body: project sidebar + main area */}
       <div className="flex min-h-0 flex-1">
-        <ProjectSidebar open={projectsOpen} onToggle={() => setProjectsOpen((v) => !v)} />
+        <ProjectSidebar
+          open={projectsOpen}
+          onToggle={() => setProjectsOpen((v) => !v)}
+          reloadToken={libraryToken}
+        />
 
         <div className="flex min-h-0 flex-1 flex-col">
           {mode === 'edit' ? (

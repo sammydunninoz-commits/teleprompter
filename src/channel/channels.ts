@@ -1,4 +1,5 @@
 import type { DirectorFlag, DisplayConfig, TransportState } from '../store/types'
+import type { TransportCommand } from '../scroll/commands'
 import type { JSONContent } from '@tiptap/core'
 
 /**
@@ -25,6 +26,14 @@ export type TalentMessage =
   | { type: 'blackout'; on: boolean }
   | { type: 'hello' } // a new display window announces itself; operator replies with full state
   | { type: 'request-state'; displayId: string }
+  /**
+   * Display → operator. Displays remain pure followers of transport STATE: they
+   * never mutate their own scroll. A keypress in a display window travels up as
+   * a command, the operator applies it, and the resulting state comes back down
+   * the normal broadcast — so every window stays glued to one source of truth
+   * instead of diverging.
+   */
+  | { type: 'control'; cmd: TransportCommand }
 
 /** Messages on the director-only channel (voice flags, notes). Never seen by talent. */
 export type DirectorMessage = { type: 'flag'; flag: DirectorFlag }

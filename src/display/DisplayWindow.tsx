@@ -1,9 +1,12 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import DisplayView from './DisplayView'
 import { useStore } from '../store/useStore'
 import { useTalentReceiver } from './useTalentReceiver'
 import { useWakeLock } from '../hooks/useWakeLock'
+import { useKeyboardTransport } from '../hooks/useKeyboardTransport'
+import { talentChannel } from '../channel/channels'
 import { defaultDisplayConfig } from '../store/types'
+import type { TransportCommand } from '../scroll/commands'
 
 /**
  * A standalone prompter window, one per screen. Opened by the operator via
@@ -13,6 +16,14 @@ import { defaultDisplayConfig } from '../store/types'
 export default function DisplayWindow({ displayId }: { displayId: string }) {
   useTalentReceiver(displayId)
   useWakeLock(true)
+
+  // Keys pressed here are sent UP to the operator rather than applied locally.
+  // A display must stay a follower — if it moved its own scroll, this window
+  // would drift away from every other one.
+  const send = useCallback((cmd: TransportCommand) => {
+    talentChannel.post({ type: 'control', cmd })
+  }, [])
+  useKeyboardTransport(true, send)
 
   const doc = useStore((s) => s.doc)
   const docVersion = useStore((s) => s.docVersion)

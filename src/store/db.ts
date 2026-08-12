@@ -1,4 +1,5 @@
 import Dexie, { type EntityTable } from 'dexie'
+import { nanoid } from 'nanoid'
 import type { DirectorFlag, LinkedDoc, Project } from './types'
 
 /**
@@ -39,6 +40,29 @@ export async function listProjects(): Promise<Project[]> {
 export async function deleteProject(id: string): Promise<void> {
   await db.projects.delete(id)
   await db.links.delete(id)
+}
+
+/** Rename in place. Returns the updated project, or undefined if it's gone. */
+export async function renameProject(id: string, name: string): Promise<Project | undefined> {
+  const p = await db.projects.get(id)
+  if (!p) return undefined
+  const updated = { ...p, name, updatedAt: Date.now() }
+  await db.projects.put(updated)
+  return updated
+}
+
+/**
+ * Copy a project under a new id and name. The live-document link is deliberately
+ * NOT copied: two projects sharing one file handle would each refresh from the
+ * same source and silently overwrite the other's divergent script.
+ */
+export async function duplicateProject(id: string, name: string): Promise<Project | undefined> {
+  const p = await db.projects.get(id)
+  if (!p) return undefined
+  const now = Date.now()
+  const copy: Project = { ...p, id: nanoid(10), name, createdAt: now, updatedAt: now }
+  await db.projects.put(copy)
+  return copy
 }
 
 export async function saveLink(link: LinkedDoc): Promise<void> {

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useStore } from '../store/useStore'
 import { listProjects, deleteProject, saveLink, getLink, deleteLink } from '../store/db'
 import { importFile } from '../io/import'
-import { importProjectJson } from '../io/projectFile'
+import { exportProjectJson, importProjectJson } from '../io/projectFile'
 import {
   supportsFileSystemAccess,
   pickLinkedDoc,
@@ -28,6 +28,7 @@ export default function ProjectSidebar({
   const persist = useStore((s) => s.persist)
   const newProject = useStore((s) => s.newProject)
   const loadProjectIntoState = useStore((s) => s.loadProjectIntoState)
+  const snapshotProject = useStore((s) => s.snapshotProject)
   const setMode = useStore((s) => s.setMode)
   const projectId = useStore((s) => s.projectId)
   const linkedDoc = useStore((s) => s.linkedDoc)
@@ -80,6 +81,15 @@ export default function ProjectSidebar({
     await persist()
     await refresh()
     flash('Saved to library')
+  }
+
+  // Exports the LIVE document, not the last-saved copy in the library, so
+  // in-progress edits are included without having to Save first. The file is the
+  // native project format, so Open reads it straight back in.
+  function onExportJson() {
+    const p = snapshotProject()
+    exportProjectJson(p)
+    flash(`Exported “${p.name}”`)
   }
 
   async function onOpenFile(e: React.ChangeEvent<HTMLInputElement>) {
@@ -261,6 +271,21 @@ export default function ProjectSidebar({
         className="hidden"
         onChange={onOpenFile}
       />
+
+      {/* Export */}
+      <div className="mt-1 flex flex-col gap-2 rounded border border-edge bg-panel p-2">
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Export</h3>
+        <button
+          onClick={onExportJson}
+          className="rounded border border-edge px-2 py-1.5 text-sm hover:bg-edge"
+        >
+          ⭳ Script as .json
+        </button>
+        <p className="text-[10px] leading-snug text-neutral-500">
+          Downloads the script exactly as it stands now, including edits you haven’t saved, with
+          questions, notes and settings intact. <b>Open</b> reads it straight back in.
+        </p>
+      </div>
 
       {/* Live document */}
       <div className="mt-1 flex flex-col gap-2 rounded border border-edge bg-panel p-2">

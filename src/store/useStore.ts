@@ -84,6 +84,12 @@ interface AppState {
 
   loadProjectIntoState: (p: Project) => void
   newProject: () => void
+  /**
+   * The live in-memory state as a Project. Every editor keystroke lands in the
+   * store, so this always includes unsaved edits — which is what both saving and
+   * exporting want, and why they share it rather than each assembling their own.
+   */
+  snapshotProject: () => Project
   persist: () => Promise<void>
 
   setLinkedDoc: (
@@ -258,9 +264,9 @@ export const useStore = create<AppState>((set, get) => ({
       // A brand-new projectId → the sidebar effect resolves the link to null.
     }),
 
-  persist: async () => {
+  snapshotProject: () => {
     const { projectId, projectName, doc, settings } = get()
-    const project: Project = {
+    return {
       id: projectId,
       name: projectName,
       doc,
@@ -268,7 +274,10 @@ export const useStore = create<AppState>((set, get) => ({
       createdAt: Date.now(),
       updatedAt: Date.now(),
     }
-    await saveProject(project)
+  },
+
+  persist: async () => {
+    await saveProject(get().snapshotProject())
   },
 
   setLinkedDoc: (link) => set({ linkedDoc: link }),

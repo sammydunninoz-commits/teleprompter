@@ -36,7 +36,9 @@ Built to the spec in [`teleprompter-pwa-build-spec.md`](teleprompter-pwa-build-s
 | Recognizer: Web Speech (working, privacy-flagged) + on-device Whisper (optional, lazy) | ✅ |
 | Per-session calibration + audio input device picker | ✅ |
 | **Director notes**: classifier on the shared aligner, separate `BroadcastChannel`, per-take history, click-to-jump, manual flag | ✅ |
-| Project library (Dexie) + Markdown / Word export | ✅ |
+| Project library (Dexie) | ✅ |
+| Export the live script (incl. unsaved edits) as `.json` from the Projects sidebar | ✅ |
+| Markdown / Word export — `exportMarkdown` / `exportDoc` exist in `io/export.ts` but no UI calls them yet | 🚧 |
 
 The aligner (`src/voice/aligner.ts`) is a pure module and is unit-verified for
 all six behaviours (normal / skip / ad-lib / backtrack / stumble / confidence-

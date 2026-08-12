@@ -2,38 +2,55 @@ import { useState } from 'react'
 import DisplaysPanel from './DisplaysPanel'
 import VoicePanel from './VoicePanel'
 import NotesPanel from './NotesPanel'
+import RemotePanel from './RemotePanel'
 import { useVoiceController } from '../voice/useVoiceController'
+import { usePeerHost } from '../remote/usePeerHost'
 import { useDirectorChannel } from '../hooks/useDirectorChannel'
 import { useNotesStore } from '../store/useNotesStore'
+import { FEATURES } from '../lib/features'
 
-type Tab = 'displays' | 'voice' | 'notes'
+type Tab = 'displays' | 'voice' | 'remote' | 'notes'
 
-/** Right-hand operator panel in Prompt mode: displays, voice tracking, notes. */
+/** Right-hand operator panel in Prompt mode: displays, phone remote, notes. */
 export default function PromptSidebar() {
   const [tab, setTab] = useState<Tab>('displays')
-  // Voice controller and director-channel subscription live here so they persist
-  // across tab switches while in Prompt mode.
-  const controller = useVoiceController()
+  // The voice controller and the peer host live here, not in their panels, so
+  // an in-progress session survives switching tabs while in Prompt mode.
+  const controller = useVoiceController(FEATURES.voice)
+  const host = usePeerHost()
   useDirectorChannel()
   const flagCount = useNotesStore((s) => s.flags.length)
+
+  // Guard against a stale tab selection if a feature is switched off.
+  const active: Tab = tab === 'voice' && !FEATURES.voice ? 'displays' : tab
 
   return (
     <div className="flex h-full flex-col">
       <div className="flex border-b border-edge">
-        <TabBtn active={tab === 'displays'} onClick={() => setTab('displays')}>
+        <TabBtn active={active === 'displays'} onClick={() => setTab('displays')}>
           Displays
         </TabBtn>
-        <TabBtn active={tab === 'voice'} onClick={() => setTab('voice')}>
-          Voice{controller.state.active ? ' ●' : ''}
-        </TabBtn>
-        <TabBtn active={tab === 'notes'} onClick={() => setTab('notes')}>
+        {FEATURES.voice && (
+          <TabBtn active={active === 'voice'} onClick={() => setTab('voice')}>
+            Voice{controller.state.active ? ' ●' : ''}
+          </TabBtn>
+        )}
+        {FEATURES.remote && (
+          <TabBtn active={active === 'remote'} onClick={() => setTab('remote')}>
+            Remote{host.state.peers > 0 ? ' ●' : ''}
+          </TabBtn>
+        )}
+        <TabBtn active={active === 'notes'} onClick={() => setTab('notes')}>
           Notes{flagCount ? ` (${flagCount})` : ''}
         </TabBtn>
       </div>
       <div className="min-h-0 flex-1">
-        {tab === 'displays' && <DisplaysPanel />}
-        {tab === 'voice' && <VoicePanel controller={controller} />}
-        {tab === 'notes' && <NotesPanel />}
+        {active === 'displays' && <DisplaysPanel />}
+        {active === 'voice' && FEATURES.voice && <VoicePanel controller={controller} />}
+        {active === 'remote' && FEATURES.remote && (
+          <RemotePanel state={host.state} start={host.start} stop={host.stop} />
+        )}
+        {active === 'notes' && <NotesPanel />}
       </div>
     </div>
   )

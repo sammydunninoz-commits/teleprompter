@@ -2,14 +2,25 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App'
 import DisplayWindow from './display/DisplayWindow'
+import RemoteView from './remote/RemoteView'
 import './index.css'
 
-// A window opened with ?display=<id> is a talent prompter surface, not the
-// operator UI. Everything else is the operator console.
-const displayId = new URLSearchParams(window.location.search).get('display')
+// Three surfaces share one bundle, chosen by query string:
+//   ?display=<id>  → a talent prompter surface (follows the operator)
+//   ?remote=<code> → a handheld transport remote (drives the operator)
+//   otherwise      → the operator console
+const params = new URLSearchParams(window.location.search)
+const displayId = params.get('display')
+const remoteCode = params.get('remote')
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    {displayId ? <DisplayWindow displayId={displayId} /> : <App />}
+    {displayId ? (
+      <DisplayWindow displayId={displayId} />
+    ) : remoteCode ? (
+      <RemoteView code={remoteCode} />
+    ) : (
+      <App />
+    )}
   </React.StrictMode>,
 )

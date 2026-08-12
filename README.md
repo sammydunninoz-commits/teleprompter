@@ -30,7 +30,8 @@ Built to the spec in [`teleprompter-pwa-build-spec.md`](teleprompter-pwa-build-s
 | Feature | State |
 | --- | --- |
 | **PDF import** (pdf.js) with Y-position paragraph heuristics + editor cleanup | ✅ |
-| **Voice speed-match**: scroll WPM tracks the speaker's pace through the script (smooth, not position-jump) | ✅ |
+| **Phone remote**: scan a QR to drive speed / play / position from a handheld over WebRTC | ✅ |
+| **Voice speed-match**: scroll WPM tracks the speaker's pace through the script (smooth, not position-jump) | 🚧 built, switched off |
 | Pace measured from aligner progress (bounded-window fuzzy + phonetic match, confidence gate); decays to a stop on silence; manual override always wins | ✅ |
 | Recognizer: Web Speech (working, privacy-flagged) + on-device Whisper (optional, lazy) | ✅ |
 | Per-session calibration + audio input device picker | ✅ |
@@ -42,7 +43,33 @@ all six behaviours (normal / skip / ad-lib / backtrack / stumble / confidence-
 gate). Director flags are proven to travel only on the director channel — never
 the talent channel.
 
+### Phone remote usage
+
+In **Prompt** mode → the **Remote** tab → **Start remote session**. Scan the QR
+with a phone (or open the link / type the pairing code) and the phone becomes a
+handheld transport: **speed (WPM)** slider, play/pause, back-to-top, position
+scrubber and a live runtime countdown.
+
+The phone is a *controller*, not a display — it receives transport state only,
+never the script body and never director flags. Commands go through the ordinary
+store actions, so a phone press reaches the talent screens by exactly the same
+path as a click on the desktop transport bar.
+
+Pairing uses the public PeerJS broker for signalling, after which commands travel
+directly device-to-device. Both ends therefore need internet to *pair*, which is
+the one place this feature departs from the app's otherwise fully-offline
+promise. The pairing code dies with the session, so an old QR photo is useless.
+
+> Requires a secure context (HTTPS, or `localhost`). Testing over plain HTTP on a
+> LAN IP will fail on iOS.
+
 ### Voice tracking & director notes usage
+
+> **Currently switched off** via `FEATURES.voice` in `src/lib/features.ts`. The
+> whole subsystem below is still present and still compiles — it is simply not
+> mounted, so the app never asks for microphone permission. Flip the flag to
+> `true` to bring the **Voice** tab back. The **Notes** tab is unaffected: its
+> flags are operator-pressed, not speech-derived.
 
 In **Prompt** mode → the **Voice** tab: pick a recogniser (Web Speech works out
 of the box but streams audio off-device; Whisper is fully on-device once
@@ -94,6 +121,12 @@ src/
     db.ts           Dexie (projects + per-take flags)
   channel/
     channels.ts     TWO separate BroadcastChannels: talent vs director (never merged)
+  remote/
+    protocol.ts     Phone-remote wire types + pairing-code generation
+    usePeerHost.ts  Operator side: PeerJS host, applies commands via store actions
+    RemoteView.tsx  The handheld surface itself (?remote=<code>)
+  lib/
+    features.ts     Build-time switches (voice off, remote on)
   scroll/
     transport.ts    Pure position math: offsetAt(state, now), WPM→px/s, runtime estimate
   editor/

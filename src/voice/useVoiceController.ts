@@ -103,8 +103,13 @@ function nowMs() {
  * words. The aligner is still used, but only to (a) measure script progress for
  * the WPM estimate and (b) feed the director-notes classifier in the background.
  * Manual control (scrub / speed / pause) always overrides.
+ *
+ * Pass `enabled: false` (see FEATURES.voice) to make the controller completely
+ * inert: no aligner is built, no store subscription is installed, and `start()`
+ * is a no-op, so no microphone permission is ever requested. The hook is still
+ * called unconditionally by the caller, keeping hook order stable.
  */
-export function useVoiceController() {
+export function useVoiceController(enabled = true) {
   const [state, setState] = useState<VoiceState>({
     active: false,
     kind: 'webspeech',
@@ -146,15 +151,17 @@ export function useVoiceController() {
   // Rebuild aligner tokens whenever the document changes.
   const docVersion = useStore((s) => s.docVersion)
   useEffect(() => {
+    if (!enabled) return
     const tokens = tokensFromDoc(useStore.getState().doc)
     tokensRef.current = tokens
     if (alignerRef.current) alignerRef.current.setTokens(tokens)
     else alignerRef.current = new Aligner(tokens, cfgRef.current)
-  }, [docVersion])
+  }, [docVersion, enabled])
 
   // Detect manual overrides: any transport change we didn't initiate counts as
   // manual → resync the aligner to the eyeline and yield speed control briefly.
   useEffect(() => {
+    if (!enabled) return
     const unsub = useStore.subscribe((s, prev) => {
       if (s.transport.seq === prev.transport.seq) return
       if (voiceApplyingRef.current) return // our own speed update
@@ -165,7 +172,7 @@ export function useVoiceController() {
       alignerRef.current?.syncToWid(useStore.getState().currentEyelineWid)
     })
     return unsub
-  }, [])
+  }, [enabled])
 
   /** Set the scroll speed from the estimate and make sure the roll is running. */
   function applyWpm(wpm: number) {
@@ -377,6 +384,7 @@ export function useVoiceController() {
 
   const start = useCallback(
     async (kind: RecognizerKind, deviceId?: string) => {
+      if (!enabled) return
       setState((s) => ({ ...s, status: 'Starting…', error: null }))
       useNotesStore.getState().startTake()
       const tokens = tokensFromDoc(useStore.getState().doc)
@@ -446,7 +454,7 @@ export function useVoiceController() {
         status: 'Matching your pace',
       }))
     },
-    [handleWord],
+    [handleWord, enabled],
   )
 
   const stop = useCallback(() => {

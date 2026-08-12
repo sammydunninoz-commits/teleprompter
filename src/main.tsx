@@ -4,7 +4,12 @@ import App from './App'
 import DisplayWindow from './display/DisplayWindow'
 import RemoteView from './remote/RemoteView'
 import type { BrokerId } from './remote/relay'
+import { installUpdateHandling } from './lib/appUpdate'
 import './index.css'
+
+// Must run before anything lazy-loads, so a stale shell self-heals instead of
+// surfacing a broken feature.
+installUpdateHandling()
 
 // Three surfaces share one bundle, chosen by query string:
 //   ?display=<id>  → a talent prompter surface (follows the operator)

@@ -32,6 +32,11 @@ export default defineConfig({
         globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
         cleanupOutdatedCaches: true,
         clientsClaim: true,
+        // Activate a new worker immediately rather than leaving it waiting
+        // behind an open tab. Without this a deploy can leave the page running
+        // an old shell whose hashed chunks the server has already deleted — see
+        // lib/appUpdate.ts, which reloads when this claim happens.
+        skipWaiting: true,
       },
       devOptions: {
         enabled: false,

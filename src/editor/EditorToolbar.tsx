@@ -1,6 +1,4 @@
 import type { Editor } from '@tiptap/react'
-import { useRef } from 'react'
-import { importFile } from '../io/import'
 
 interface Props {
   editor: Editor
@@ -9,24 +7,12 @@ interface Props {
 const HIGHLIGHT_COLORS = ['#fde047', '#86efac', '#93c5fd', '#f9a8d4', '#fdba74']
 const QUESTION_COLORS = ['#fbbf24', '#f87171', '#34d399', '#60a5fa', '#c084fc']
 
+/**
+ * Formatting controls only. File loading lives in the top bar's "Load Script",
+ * which does everything this toolbar's old Import button did and also accepts
+ * .json projects — two doors to the same room was just a way to confuse people.
+ */
 export default function EditorToolbar({ editor }: Props) {
-  const fileRef = useRef<HTMLInputElement>(null)
-
-  async function onImport(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file) return
-    try {
-      const html = await importFile(file)
-      window.dispatchEvent(
-        new CustomEvent('autocue:setcontent', { detail: { html, detectQuestions: true } }),
-      )
-    } catch (err) {
-      alert(`Import failed: ${(err as Error).message}`)
-    } finally {
-      e.target.value = ''
-    }
-  }
-
   return (
     <div className="flex flex-wrap items-center gap-1 border-b border-edge bg-panelalt px-3 py-2 text-sm">
       <Btn active={editor.isActive('bold')} onClick={() => editor.chain().focus().toggleBold().run()}>
@@ -138,22 +124,6 @@ export default function EditorToolbar({ editor }: Props) {
       <Sep />
       <Btn onClick={() => editor.chain().focus().undo().run()}>↶</Btn>
       <Btn onClick={() => editor.chain().focus().redo().run()}>↷</Btn>
-
-      <div className="ml-auto">
-        <button
-          className="rounded bg-accent px-3 py-1 font-medium text-white hover:brightness-110"
-          onClick={() => fileRef.current?.click()}
-        >
-          Import
-        </button>
-        <input
-          ref={fileRef}
-          type="file"
-          accept=".docx,.pdf,.txt,.md,.markdown"
-          className="hidden"
-          onChange={onImport}
-        />
-      </div>
     </div>
   )
 }

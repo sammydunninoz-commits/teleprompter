@@ -172,34 +172,41 @@ export default function DisplayView({
     const content = contentRef.current
     if (!content) return
     const tick = () => {
-      const t = useStore.getState().transport
-      let off = offsetAt(t, nowMs())
-      off = clampOffset(off)
+      // The whole body is guarded and ALWAYS reschedules in `finally`: a single
+      // thrown frame must never kill the loop, or the talent display would freeze
+      // for the rest of the take with no recovery.
+      try {
+        const t = useStore.getState().transport
+        let off = offsetAt(t, nowMs())
+        off = clampOffset(off)
 
-      // Auto-hold at question ends — but NOT during voice tracking, which coasts
-      // through questions at the reader's pace instead of stopping.
-      if (t.playing && onAutoHold && !useStore.getState().voiceActive) {
-        for (const stop of stopsRef.current) {
-          if (stop > armedOffsetRef.current && off >= stop) {
-            off = stop
-            onAutoHold(stop)
-            break
+        // Auto-hold at question ends — but NOT during voice tracking, which coasts
+        // through questions at the reader's pace instead of stopping.
+        if (t.playing && onAutoHold && !useStore.getState().voiceActive) {
+          for (const stop of stopsRef.current) {
+            if (stop > armedOffsetRef.current && off >= stop) {
+              off = stop
+              onAutoHold(stop)
+              break
+            }
           }
         }
+
+        content.style.transform = `translate3d(0, ${-off}px, 0)`
+
+        // Authoritative view publishes the eyeline word (throttled) so the voice
+        // aligner can resync after a manual scrub.
+        if (anchorOnEdit && nowMs() - lastEyelineReportRef.current > 120) {
+          lastEyelineReportRef.current = nowMs()
+          const eyelineY = (viewportRef.current?.clientHeight ?? 0) * config.eyelineFrac
+          const near = wordNearestY(content, eyelineY)
+          useStore.getState().setEyelineWid(near?.wid ?? null)
+        }
+      } catch (err) {
+        console.error('[autocue] scroll frame error (loop continues):', err)
+      } finally {
+        rafRef.current = requestAnimationFrame(tick)
       }
-
-      content.style.transform = `translate3d(0, ${-off}px, 0)`
-
-      // Authoritative view publishes the eyeline word (throttled) so the voice
-      // aligner can resync after a manual scrub.
-      if (anchorOnEdit && nowMs() - lastEyelineReportRef.current > 120) {
-        lastEyelineReportRef.current = nowMs()
-        const eyelineY = (viewportRef.current?.clientHeight ?? 0) * config.eyelineFrac
-        const near = wordNearestY(content, eyelineY)
-        useStore.getState().setEyelineWid(near?.wid ?? null)
-      }
-
-      rafRef.current = requestAnimationFrame(tick)
     }
     rafRef.current = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(rafRef.current)

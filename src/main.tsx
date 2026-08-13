@@ -5,11 +5,8 @@ import DisplayWindow from './display/DisplayWindow'
 import RemoteView from './remote/RemoteView'
 import type { BrokerId } from './remote/relay'
 import { installUpdateHandling } from './lib/appUpdate'
+import { ErrorBoundary } from './lib/ErrorBoundary'
 import './index.css'
-
-// Must run before anything lazy-loads, so a stale shell self-heals instead of
-// surfacing a broken feature.
-installUpdateHandling()
 
 // Three surfaces share one bundle, chosen by query string:
 //   ?display=<id>  → a talent prompter surface (follows the operator)
@@ -21,14 +18,26 @@ const remoteCode = params.get('remote')
 // Which relay the console landed on; see remoteUrlFor.
 const brokerId = (params.get('b') ?? undefined) as BrokerId | undefined
 
+// Stale-bundle self-heal runs on the operator/remote — but NEVER on the talent
+// display, where an automatic reload is a blank screen mid-recording.
+installUpdateHandling(!displayId)
+
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     {displayId ? (
-      <DisplayWindow displayId={displayId} />
+      // The talent display is recording-critical: a self-recovering boundary keeps
+      // it from ever white-screening on a stray render/message error.
+      <ErrorBoundary surface="display">
+        <DisplayWindow displayId={displayId} />
+      </ErrorBoundary>
     ) : remoteCode ? (
-      <RemoteView code={remoteCode} brokerId={brokerId} />
+      <ErrorBoundary surface="remote">
+        <RemoteView code={remoteCode} brokerId={brokerId} />
+      </ErrorBoundary>
     ) : (
-      <App />
+      <ErrorBoundary surface="operator">
+        <App />
+      </ErrorBoundary>
     )}
   </React.StrictMode>,
 )

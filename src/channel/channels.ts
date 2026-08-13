@@ -46,8 +46,19 @@ class TypedChannel<T> {
 
   constructor(name: string) {
     this.ch = new BroadcastChannel(name)
-    this.ch.onmessage = (e: MessageEvent<T>) => {
-      for (const h of this.handlers) h(e.data)
+    this.ch.onmessage = (e: MessageEvent<T>) => this.dispatch(e.data)
+  }
+
+  /** Deliver to every subscriber, isolating failures: one throwing handler must
+   *  not stop the others receiving the message (a dropped transport/config on a
+   *  talent display could freeze or blank it). */
+  private dispatch(msg: T): void {
+    for (const h of this.handlers) {
+      try {
+        h(msg)
+      } catch (err) {
+        console.error('[autocue] channel subscriber threw (others still notified):', err)
+      }
     }
   }
 
@@ -58,7 +69,7 @@ class TypedChannel<T> {
     // event bus that works within the sending window as well as across windows —
     // needed e.g. for the director-notes log, which posts and listens in the
     // same (operator) window.
-    for (const h of this.handlers) h(msg)
+    this.dispatch(msg)
   }
 
   subscribe(h: Handler<T>): () => void {

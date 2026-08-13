@@ -21,6 +21,11 @@ export function useOperatorBroadcaster() {
         applyTransportCommand(msg.cmd)
       }
     })
+    // Proactively push full state on mount, not only in reply to a request. If the
+    // operator was reloaded while a display window is already open, the display —
+    // which stops asking once it has its config — would otherwise sit on stale,
+    // uncontrollable content. This re-syncs it the moment the operator comes back.
+    useStore.getState().broadcastFullState()
     return unsub
   }, [])
 }

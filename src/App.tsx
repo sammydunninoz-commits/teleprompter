@@ -6,6 +6,7 @@ import PromptSidebar from './components/PromptSidebar'
 import ProjectSidebar from './components/ProjectSidebar'
 import ProjectActions from './components/ProjectActions'
 import { useStore } from './store/useStore'
+import { useAutosave } from './store/useAutosave'
 import { useKeyboardTransport } from './hooks/useKeyboardTransport'
 import { useWakeLock } from './hooks/useWakeLock'
 import { useOperatorBroadcaster } from './hooks/useOperatorBroadcaster'
@@ -31,6 +32,8 @@ export default function App() {
   useWakeLock(mode === 'prompt')
   // Answer state-sync requests from any display windows we've opened.
   useOperatorBroadcaster()
+  // Continuously mirror the working script to localStorage → survives a reload.
+  useAutosave()
 
   const display = displays[0]
 

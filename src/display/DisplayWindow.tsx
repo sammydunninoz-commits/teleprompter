@@ -23,7 +23,9 @@ export default function DisplayWindow({ displayId }: { displayId: string }) {
   const send = useCallback((cmd: TransportCommand) => {
     talentChannel.post({ type: 'control', cmd })
   }, [])
-  useKeyboardTransport(true, send)
+  // Blackout is disabled from the display: a stray 'b' on the talent window must
+  // not black out every screen and read as a fault. Operator console keeps it.
+  useKeyboardTransport(true, send, { allowBlackout: false })
 
   const doc = useStore((s) => s.doc)
   const docVersion = useStore((s) => s.docVersion)

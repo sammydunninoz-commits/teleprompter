@@ -45,7 +45,15 @@ async function recover(reason: string): Promise<void> {
   window.location.reload()
 }
 
-export function installUpdateHandling(): void {
+/**
+ * Wire up stale-bundle self-healing. Pass `false` for surfaces that must NEVER
+ * reload on their own — specifically the talent display, where a reload is a
+ * blank screen mid-recording. Those surfaces simply keep running their cached
+ * bundle for the whole session; they update only when reopened.
+ */
+export function installUpdateHandling(enableRecovery = true): void {
+  if (!enableRecovery) return
+
   // Vite raises this when a lazily-imported chunk can't be fetched, which is
   // the precise symptom of a stale shell pointing at a deleted chunk.
   window.addEventListener('vite:preloadError', (e) => {

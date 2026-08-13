@@ -15,32 +15,41 @@ export function useTalentReceiver(displayId: string) {
   useEffect(() => {
     let gotConfig = false
     const unsub = talentChannel.subscribe((msg) => {
-      switch (msg.type) {
-        case 'transport':
-          useStore.getState().ingestTransport(msg.transport)
-          break
-        case 'doc':
-          useStore.getState().ingestDoc(msg.doc, msg.docVersion)
-          break
-        case 'display-config':
-          if (msg.config.id === displayId) {
-            useStore.getState().ingestDisplayConfig(msg.config)
-            gotConfig = true
-          }
-          break
-        case 'live-highlight':
-          useStore.getState().ingestLiveHighlight(msg.wid)
-          break
-        default:
-          break
+      // A malformed or unexpected message must never throw here — an uncaught
+      // error would bubble into React and take the display down. Ingest is
+      // best-effort; a bad frame is dropped, the screen stays up.
+      try {
+        switch (msg.type) {
+          case 'transport':
+            useStore.getState().ingestTransport(msg.transport)
+            break
+          case 'doc':
+            useStore.getState().ingestDoc(msg.doc, msg.docVersion)
+            break
+          case 'display-config':
+            if (msg.config.id === displayId) {
+              useStore.getState().ingestDisplayConfig(msg.config)
+              gotConfig = true
+            }
+            break
+          case 'live-highlight':
+            useStore.getState().ingestLiveHighlight(msg.wid)
+            break
+          default:
+            break
+        }
+      } catch (err) {
+        console.error('[autocue] display dropped a bad message:', err)
       }
     })
 
     // Announce ourselves so the operator pushes the full current state. Because
-    // BroadcastChannel doesn't queue, a single request sent before the operator
-    // tab has subscribed is lost — leaving this window stuck on "Waiting for
-    // operator…". So we retry until our config arrives, then stop. A hard cap
-    // prevents an endless poll if no operator is ever present.
+    // BroadcastChannel doesn't queue, a request sent before the operator has
+    // subscribed is lost. We retry until our config arrives — with NO hard cap,
+    // so a display opened before the operator (or reopened after one) always
+    // catches up rather than giving up and sitting on "Waiting for operator…".
+    // Recovery after an operator reload is also covered from the other side:
+    // useOperatorBroadcaster pushes full state on mount.
     talentChannel.post({ type: 'request-state', displayId })
     const retry = window.setInterval(() => {
       if (gotConfig) {
@@ -49,12 +58,10 @@ export function useTalentReceiver(displayId: string) {
       }
       talentChannel.post({ type: 'request-state', displayId })
     }, 500)
-    const stopRetry = window.setTimeout(() => window.clearInterval(retry), 30000)
 
     return () => {
       unsub()
       window.clearInterval(retry)
-      window.clearTimeout(stopRetry)
     }
   }, [displayId])
 }

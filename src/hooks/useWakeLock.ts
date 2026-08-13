@@ -12,9 +12,22 @@ export function useWakeLock(active: boolean) {
 
     async function acquire() {
       try {
-        if ('wakeLock' in navigator) {
-          lock = await navigator.wakeLock.request('screen')
+        if (!('wakeLock' in navigator)) return
+        // Release any sentinel we still hold before requesting a new one, so the
+        // re-acquire-on-visible path can't leak the previous lock.
+        if (lock) {
+          const old = lock
+          lock = null
+          await old.release().catch(() => {})
         }
+        const sentinel = await navigator.wakeLock.request('screen')
+        // If the effect was torn down while the request was in flight, the cleanup
+        // already ran and won't see this sentinel — release it now, don't leak it.
+        if (cancelled) {
+          sentinel.release().catch(() => {})
+          return
+        }
+        lock = sentinel
       } catch {
         /* denied or unsupported — non-fatal */
       }

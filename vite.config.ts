@@ -10,7 +10,13 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
-      registerType: 'autoUpdate',
+      // 'prompt' (not 'autoUpdate'): a new service worker must WAIT rather than
+      // skipWaiting+clientsClaim its way into every open window. Auto-claiming was
+      // firing `controllerchange` in the live talent-display window and reloading
+      // it mid-take — a blank screen that ends a recording. Updates now apply only
+      // when all tabs are closed and reopened. The operator console still self-heals
+      // a genuinely stale chunk via installUpdateHandling(); the display never does.
+      registerType: 'prompt',
       includeAssets: ['favicon.svg', 'fonts/*.woff2'],
       manifest: {
         name: 'autocue',

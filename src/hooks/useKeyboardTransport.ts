@@ -13,7 +13,9 @@ import { WPM_STEP, type TransportCommand } from '../scroll/commands'
 export function useKeyboardTransport(
   enabled: boolean,
   dispatch: (cmd: TransportCommand) => void,
+  opts: { allowBlackout?: boolean } = {},
 ) {
+  const { allowBlackout = true } = opts
   useEffect(() => {
     if (!enabled) return
     function onKey(e: KeyboardEvent) {
@@ -60,6 +62,10 @@ export function useKeyboardTransport(
           break
         case 'b':
         case 'B':
+          // Not honoured from the talent display: operators habitually leave focus
+          // on that window, and a stray 'b' there would black out every screen and
+          // look like a fault mid-take. Blackout stays an operator-console action.
+          if (!allowBlackout) break
           e.preventDefault()
           dispatch({ type: 'blackout-toggle' })
           break
@@ -67,5 +73,5 @@ export function useKeyboardTransport(
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [enabled, dispatch])
+  }, [enabled, dispatch, allowBlackout])
 }

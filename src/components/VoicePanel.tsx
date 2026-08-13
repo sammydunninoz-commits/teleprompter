@@ -49,8 +49,11 @@ export default function VoicePanel({ controller }: { controller: Controller }) {
         <select
           value={deviceId}
           onChange={(e) => setDeviceId(e.target.value)}
-          disabled={state.active}
-          className="rounded border border-edge bg-panelalt px-2 py-1"
+          // Web Speech can't target a specific device — it always uses the OS
+          // default — so the picker is only live for the on-device Whisper path.
+          // Disabling it here prevents the false impression that a selection sticks.
+          disabled={state.active || kind === 'webspeech'}
+          className="rounded border border-edge bg-panelalt px-2 py-1 disabled:opacity-50"
         >
           <option value="">Default (built-in mic)</option>
           {devices.map((d) => (
@@ -59,6 +62,11 @@ export default function VoicePanel({ controller }: { controller: Controller }) {
             </option>
           ))}
         </select>
+        {kind === 'webspeech' && (
+          <span className="text-[10px] text-neutral-500">
+            Web Speech always uses your system default mic — set it in Windows sound settings.
+          </span>
+        )}
       </label>
 
       <label className="flex items-center justify-between gap-2">

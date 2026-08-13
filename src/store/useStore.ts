@@ -12,6 +12,7 @@ import {
 import { makePaused, makePlaying, wpmToPxPerSec } from '../scroll/transport'
 import { talentChannel } from '../channel/channels'
 import { saveProject } from './db'
+import { initialProjectState } from './session'
 import { nanoid } from 'nanoid'
 
 type Mode = 'edit' | 'prompt'
@@ -108,10 +109,9 @@ function broadcastTransport(t: TransportState) {
 }
 
 export const useStore = create<AppState>((set, get) => ({
-  projectId: nanoid(10),
-  projectName: 'Untitled script',
-  doc: emptyDoc(),
-  settings: { ...DEFAULT_SETTINGS },
+  // Restores the operator's last working script on load (crash/reload recovery);
+  // a fresh blank project on the display/remote surfaces or a first run.
+  ...initialProjectState(),
   docVersion: 0,
 
   mode: 'edit',

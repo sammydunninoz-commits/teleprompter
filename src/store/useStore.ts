@@ -65,6 +65,8 @@ interface AppState {
   scrubTo: (offset: number) => void
 
   updateDisplay: (id: string, patch: Partial<DisplayConfig>) => void
+  /** Apply a shared reading-layout change to every screen at once. */
+  updateLayout: (patch: Partial<DisplayConfig>) => void
   addDisplay: (config: DisplayConfig) => void
   removeDisplay: (id: string) => void
   setBlackout: (id: string, on: boolean) => void
@@ -185,6 +187,14 @@ export const useStore = create<AppState>((set, get) => ({
     }))
     const d = get().displays.find((x) => x.id === id)
     if (d) talentChannel.post({ type: 'display-config', config: d })
+  },
+
+  updateLayout: (patch) => {
+    // Reading layout is shared: apply the change to EVERY screen so the talent
+    // display mirrors the operator's readout exactly. Only orientation/blackout
+    // stay per-screen (use updateDisplay for those).
+    set((s) => ({ displays: s.displays.map((d) => ({ ...d, ...patch })) }))
+    get().displays.forEach((d) => talentChannel.post({ type: 'display-config', config: d }))
   },
 
   addDisplay: (config) => {

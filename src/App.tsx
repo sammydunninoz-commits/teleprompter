@@ -5,6 +5,7 @@ import TransportBar from './components/TransportBar'
 import PromptSidebar from './components/PromptSidebar'
 import ProjectSidebar from './components/ProjectSidebar'
 import ProjectActions from './components/ProjectActions'
+import ShortcutsMenu from './components/ShortcutsMenu'
 import { useStore } from './store/useStore'
 import { useAutosave } from './store/useAutosave'
 import { useKeyboardTransport } from './hooks/useKeyboardTransport'
@@ -22,7 +23,6 @@ export default function App() {
   const projectName = useStore((s) => s.projectName)
   const reportLayout = useStore((s) => s.reportLayout)
   const pause = useStore((s) => s.pause)
-  const setLiveHighlight = useStore((s) => s.setLiveHighlight)
   const [projectsOpen, setProjectsOpen] = useState(true)
   // Bumped after a save so the library list in the sidebar picks up the change.
   const [libraryToken, setLibraryToken] = useState(0)
@@ -55,9 +55,10 @@ export default function App() {
           </TabBtn>
         </div>
 
-        {/* Project actions sit at the right-hand end of the top bar; the left
-            sidebar is the library alone. */}
-        <div className="ml-auto">
+        {/* Project actions + shortcuts reference sit at the right-hand end of the
+            top bar; the left sidebar is the library alone. */}
+        <div className="ml-auto flex items-center gap-2">
+          <ShortcutsMenu />
           <ProjectActions onLibraryChanged={() => setLibraryToken((n) => n + 1)} />
         </div>
       </header>
@@ -102,9 +103,6 @@ export default function App() {
                   onLayout={reportLayout}
                   onAutoHold={(off) => pause(off)}
                   anchorOnEdit
-                  onWordClick={(wid) =>
-                    setLiveHighlight(useStore.getState().liveHighlightWid === wid ? null : wid)
-                  }
                   className="h-full"
                 />
               </div>

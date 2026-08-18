@@ -115,6 +115,30 @@ export function defaultDisplayConfig(id: string, label: string): DisplayConfig {
   }
 }
 
+/**
+ * The "reading layout" fields that are SHARED across every screen — so the talent
+ * display mirrors the operator's readout exactly. Everything not listed here
+ * (orientation flips, blackout, notes, id/label) stays per-screen.
+ */
+export const LAYOUT_KEYS = [
+  'fontSizePx',
+  'lineHeight',
+  'eyelineFrac',
+  'eyelineStyle',
+  'eyelineGradientIntensity',
+  'focusBoxHeightEm',
+  'maxLineCh',
+  'marginXFrac',
+  'showQuestions',
+] as const
+
+/** Extract just the shared reading-layout fields from a display config. */
+export function pickLayout(c: DisplayConfig): Partial<DisplayConfig> {
+  const out: Partial<DisplayConfig> = {}
+  for (const k of LAYOUT_KEYS) (out as Record<string, unknown>)[k] = c[k]
+  return out
+}
+
 /** Director flag kinds — set manually by the operator. Never broadcast to talent. */
 export type FlagKind = 'retake' | 'stumble' | 'skip'
 

@@ -31,7 +31,12 @@ export type TransportCommand =
 /** WPM bounds — shared by the slider, the arrow keys and the phone remote. */
 export const WPM_MIN = 40
 export const WPM_MAX = 700
+/** Fine step for the sliders (drag precision). */
 export const WPM_STEP = 5
+/** Coarse step for the arrow keys — a keypress is a deliberate, larger nudge. */
+export const WPM_KEY_STEP = 50
+/** Per-notch step for the mouse-wheel speed control (Imaginary-style). */
+export const WPM_WHEEL_STEP = 10
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v))
 

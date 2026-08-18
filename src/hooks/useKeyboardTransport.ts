@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { WPM_STEP, type TransportCommand } from '../scroll/commands'
+import { WPM_KEY_STEP, type TransportCommand } from '../scroll/commands'
 
 /**
  * Keyboard transport (Feature 2). Manual control always takes priority over any
@@ -27,9 +27,8 @@ export function useKeyboardTransport(
       )
         return
 
-      // Shift takes a bigger bite out of the speed, for when a read is badly
-      // off pace rather than drifting.
-      const step = e.shiftKey ? WPM_STEP * 4 : WPM_STEP
+      // Each arrow press nudges WPM by 50; Shift doubles it for a badly-off read.
+      const step = e.shiftKey ? WPM_KEY_STEP * 2 : WPM_KEY_STEP
 
       switch (e.key) {
         case ' ':

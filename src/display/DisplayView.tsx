@@ -1,9 +1,25 @@
-import { useEffect, useLayoutEffect, useRef } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { JSONContent } from '@tiptap/core'
 import type { DisplayConfig } from '../store/types'
 import { renderDocToHtml } from '../editor/renderDoc'
 import { offsetAt, nowMs } from '../scroll/transport'
+import { applyTransportCommand, WPM_WHEEL_STEP } from '../scroll/commands'
 import { useStore } from '../store/useStore'
+
+/**
+ * Fixed logical "scene". EVERY prompter surface — the operator's prompt preview
+ * and every spawned display window — renders the script into this identical
+ * canvas and then scales it to fit its own screen (letterboxing the remainder).
+ *
+ * This is what makes the eyeline line up across monitors: because the layout
+ * (line wrapping, word positions, eyeline height, scroll bounds) is computed in
+ * these fixed scene pixels rather than each window's own resolution, the SAME
+ * word sits on the eyeline everywhere, and a scroll-back lands on the same line
+ * on all of them. On a screen whose shape differs there's simply less runway top
+ * and bottom — but the reading line is always mirrored exactly.
+ */
+const SCENE_W = 1920
+const SCENE_H = 1080
 
 interface Props {
   doc: JSONContent
@@ -27,12 +43,6 @@ interface Props {
   className?: string
 }
 
-/**
- * A single prompter surface. Renders the shared document, then drives a
- * transform-based, rAF-driven scroll from transport state — deriving its own
- * offset every frame (never a pushed per-frame position). Reused as the
- * operator preview now and as a spawned display window in Phase 2.
- */
 export default function DisplayView({
   doc,
   docVersion,
@@ -56,18 +66,35 @@ export default function DisplayView({
   const armedOffsetRef = useRef<number>(0)
   const lastWidRef = useRef<string | null>(null)
 
+  /** Uniform scale that fits the fixed scene into this window (contain). */
+  const [scale, setScale] = useState(1)
+
   const liveHighlightWid = useStore((s) => s.liveHighlightWid)
+
+  const eyelineScenePx = SCENE_H * config.eyelineFrac
+
+  // --- Keep the scene scaled to fit the window (recompute on resize) ---
+  useEffect(() => {
+    const vp = viewportRef.current
+    if (!vp) return
+    const update = () => {
+      const k = Math.min(vp.clientWidth / SCENE_W, vp.clientHeight / SCENE_H)
+      setScale(k > 0 && Number.isFinite(k) ? k : 1)
+    }
+    update()
+    const ro = new ResizeObserver(update)
+    ro.observe(vp)
+    return () => ro.disconnect()
+  }, [])
 
   // --- Render document HTML on doc change, anchoring to the eyeline word ---
   useLayoutEffect(() => {
     const content = contentRef.current
-    const viewport = viewportRef.current
-    if (!content || !viewport) return
+    if (!content) return
 
     // Capture which word sits at the eyeline BEFORE re-rendering, so an edit
     // above the current position doesn't yank the talent's place.
-    const eyelineY = viewport.clientHeight * config.eyelineFrac
-    const anchorBefore = wordNearestY(content, eyelineY)
+    const anchorBefore = wordNearestY(content, eyelineScenePx)
 
     content.innerHTML = renderDocToHtml(doc, {
       showQuestions: config.showQuestions,
@@ -77,7 +104,7 @@ export default function DisplayView({
       questionColor,
     })
 
-    measure(content, viewport)
+    measure(content)
 
     // Re-anchor: shift transport so the same word returns to the eyeline.
     if (anchorBefore && anchorOnEdit) {
@@ -86,41 +113,36 @@ export default function DisplayView({
       )
       if (el) {
         const targetOffset =
-          el.offsetTop + el.offsetHeight / 2 - eyelineY + anchorBefore.within
+          el.offsetTop + el.offsetHeight / 2 - eyelineScenePx + anchorBefore.within
         useStore.getState().scrubTo(clampOffset(targetOffset))
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [doc, docVersion, config.showQuestions, config.showNotes, questionColor, showNotesOverride])
 
-  // --- Measure on resize ---
+  // --- Re-measure when the scene layout (font/line/width) changes ---
   useEffect(() => {
     const content = contentRef.current
-    const viewport = viewportRef.current
-    if (!content || !viewport) return
-    const ro = new ResizeObserver(() => measure(content, viewport))
-    ro.observe(viewport)
+    if (!content) return
+    const ro = new ResizeObserver(() => measure(content))
     ro.observe(content)
     return () => ro.disconnect()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [config.fontSizePx, config.lineHeight, config.maxLineCh])
 
-  function measure(content: HTMLDivElement, viewport: HTMLDivElement) {
-    const viewportH = viewport.clientHeight
-    const eyelineY = viewportH * config.eyelineFrac
+  // Measurements are in SCENE pixels: the content lives inside the fixed-size
+  // stage, and CSS transforms (the scale) never affect offsetTop/scrollHeight —
+  // so every window measures the same numbers and stays word-for-word in sync.
+  function measure(content: HTMLDivElement) {
+    const eyelineY = eyelineScenePx
     const wordEls = content.querySelectorAll<HTMLElement>('.word')
-    // Vertically CENTRE the first line on the eyeline (so it sits in the middle
-    // of the focus box at the start, not its lower half). We use the word's true
-    // centre relative to the content padding-box — which includes line-box
-    // leading, so it's exact — rather than assuming top == padding.
     const curPadTop = parseFloat(content.style.paddingTop) || 0
     const firstCentre = wordEls.length
       ? wordEls[0].offsetTop + wordEls[0].offsetHeight / 2 - curPadTop
       : (config.fontSizePx * config.lineHeight) / 2
     const topPad = Math.max(0, eyelineY - firstCentre)
-    // Bottom padding is a full viewport of runway so the last line can travel
-    // all the way up to the eyeline.
-    const botPad = viewportH
+    // A full scene of runway so the last line can travel up to the eyeline.
+    const botPad = SCENE_H
     content.style.paddingTop = `${topPad}px`
     content.style.paddingBottom = `${botPad}px`
 
@@ -134,10 +156,7 @@ export default function DisplayView({
     stopsRef.current = stops.sort((a, b) => a - b)
 
     // Paragraph starts = the scroll offset that puts each block's FIRST word on
-    // the eyeline. Blocks are identified by the wid prefix (blockId#index), so
-    // this follows the document's real structure rather than guessing from line
-    // wrapping — a wrapped paragraph is still one entry. Drives "back a
-    // paragraph"; see the autocue:prevpara handler below.
+    // the eyeline (drives "back a paragraph").
     const paraStarts: number[] = []
     let lastBlock: string | null = null
     wordEls.forEach((w) => {
@@ -148,9 +167,7 @@ export default function DisplayView({
     })
     paraStartsRef.current = paraStarts.sort((a, b) => a - b)
 
-    // End-stop: scroll until the LAST line sits centred on the eyeline, so every
-    // line — including the final paragraph — can be read at the middle. Derived
-    // from the last word's real position, independent of padding.
+    // End-stop: scroll until the LAST line sits centred on the eyeline.
     if (wordEls.length) {
       const last = wordEls[wordEls.length - 1]
       const lastCentre = last.offsetTop + last.offsetHeight / 2
@@ -161,7 +178,7 @@ export default function DisplayView({
     // Publish the range so the operator's scrub bar knows the bounds.
     if (anchorOnEdit) useStore.getState().setMaxOffset(maxOffsetRef.current)
 
-    // Report real word density (words per px of the readable body).
+    // Report real word density (words per scene-px of the readable body).
     const bodyH = Math.max(1, contentH - topPad - botPad)
     const words = wordEls.length
     onLayout?.(words / bodyH, words)
@@ -172,9 +189,8 @@ export default function DisplayView({
     const content = contentRef.current
     if (!content) return
     const tick = () => {
-      // The whole body is guarded and ALWAYS reschedules in `finally`: a single
-      // thrown frame must never kill the loop, or the talent display would freeze
-      // for the rest of the take with no recovery.
+      // Guarded and ALWAYS reschedules in `finally`: a single thrown frame must
+      // never kill the loop, or the talent display would freeze with no recovery.
       try {
         const t = useStore.getState().transport
         let off = offsetAt(t, nowMs())
@@ -198,8 +214,7 @@ export default function DisplayView({
         // aligner can resync after a manual scrub.
         if (anchorOnEdit && nowMs() - lastEyelineReportRef.current > 120) {
           lastEyelineReportRef.current = nowMs()
-          const eyelineY = (viewportRef.current?.clientHeight ?? 0) * config.eyelineFrac
-          const near = wordNearestY(content, eyelineY)
+          const near = wordNearestY(content, eyelineScenePx)
           useStore.getState().setEyelineWid(near?.wid ?? null)
         }
       } catch (err) {
@@ -241,19 +256,16 @@ export default function DisplayView({
   }, [liveHighlightWid, docVersion])
 
   // --- Jump to a word by id (click-to-jump from notes / voice) ---
-  // Only the authoritative operator view resolves jumps → one scrubTo, broadcast.
   useEffect(() => {
     if (!anchorOnEdit) return
     const content = contentRef.current
-    const viewport = viewportRef.current
-    if (!content || !viewport) return
+    if (!content) return
     const onJump = (e: Event) => {
       const wid = (e as CustomEvent<{ wid: string }>).detail?.wid
       if (!wid) return
       const el = content.querySelector<HTMLElement>(`[data-wid="${cssEscape(wid)}"]`)
       if (!el) return
-      const eyelineY = viewport.clientHeight * config.eyelineFrac
-      const target = el.offsetTop + el.offsetHeight / 2 - eyelineY
+      const target = el.offsetTop + el.offsetHeight / 2 - eyelineScenePx
       useStore.getState().scrubTo(clampOffset(target))
     }
     window.addEventListener('autocue:jumpwid', onJump as EventListener)
@@ -262,11 +274,6 @@ export default function DisplayView({
   }, [anchorOnEdit, config.eyelineFrac, docVersion])
 
   // --- Back a paragraph ---
-  // Behaves like a "previous track" button: it first sends you to the top of the
-  // paragraph you are in, which is what you want after a stumble. Press it again
-  // (or press it when already at the top) and you go to the paragraph before.
-  // The tolerance stops a press landing you a pixel above the start and reading
-  // as "already there".
   useEffect(() => {
     if (!anchorOnEdit) return
     const onPrevPara = () => {
@@ -274,8 +281,6 @@ export default function DisplayView({
       if (!starts.length) return
       const current = offsetAt(useStore.getState().transport, nowMs())
       const TOL = 12
-      // Last start strictly above the current position, ignoring one we are
-      // effectively already parked on.
       let target = 0
       for (const s of starts) {
         if (s < current - TOL) target = s
@@ -289,12 +294,10 @@ export default function DisplayView({
   }, [anchorOnEdit])
 
   function clampOffset(off: number): number {
-    // Stop when the last line reaches the eyeline (not when the content box
-    // reaches the viewport bottom), so the whole script passes the eyeline.
     return Math.min(Math.max(0, off), maxOffsetRef.current)
   }
 
-  // --- Transforms for beam-splitter rigs / mounting orientation ---
+  // Beam-splitter / mounting orientation — applied to the whole scene.
   const flips = [
     config.mirrorH ? 'scaleX(-1)' : '',
     config.flipV ? 'scaleY(-1)' : '',
@@ -303,13 +306,13 @@ export default function DisplayView({
     .filter(Boolean)
     .join(' ')
 
-  const eyelineY = `${config.eyelineFrac * 100}%`
+  const eyelinePct = `${config.eyelineFrac * 100}%`
+  const contentMaxWidth = config.maxLineCh ? `${config.maxLineCh}ch` : undefined
 
   return (
     <div
       ref={viewportRef}
       className={`relative overflow-hidden bg-black ${className ?? ''}`}
-      style={{ transform: flips || undefined }}
       onClick={(e) => {
         if (!onWordClick) return
         const target = e.target as HTMLElement
@@ -319,120 +322,135 @@ export default function DisplayView({
       onWheel={
         anchorOnEdit
           ? (e) => {
-              // Manual scrub with the wheel — reposition without changing WPM.
-              const cur = offsetAt(useStore.getState().transport, nowMs())
-              useStore.getState().scrubTo(clampOffset(cur + e.deltaY))
+              // Mouse-wheel speed control (Imaginary-style): wheel up = faster,
+              // down = slower. Position is unchanged; use the scrub bar / PageUp
+              // to move within the script.
+              const dir = e.deltaY < 0 ? 1 : -1
+              applyTransportCommand({ type: 'wpm-step', delta: dir * WPM_WHEEL_STEP })
             }
           : undefined
       }
     >
-      {/* Moving content */}
+      {/* The fixed scene, centred and scaled to fit this window. Everything inside
+          is in scene pixels — identical on every screen. */}
       <div
-        ref={contentRef}
-        className="prompter-doc will-change-transform"
         style={{
-          fontSize: config.fontSizePx,
-          lineHeight: config.lineHeight,
-          paddingLeft: `${config.marginXFrac * 100}%`,
-          paddingRight: `${config.marginXFrac * 100}%`,
-          maxWidth: '100%',
-          // max line length in ch, centered within the margins
-          ...(config.maxLineCh
-            ? { ['--max-ch' as string]: `${config.maxLineCh}ch` }
-            : {}),
-          transform: 'translate3d(0,0,0)',
+          position: 'absolute',
+          top: '50%',
+          left: '50%',
+          width: SCENE_W,
+          height: SCENE_H,
+          overflow: 'hidden',
+          background: '#000',
+          transform: `translate(-50%, -50%) scale(${scale})${flips ? ` ${flips}` : ''}`,
         }}
-      />
-
-      {/* Eyeline indicator */}
-      {config.eyelineStyle === 'line' && (
+      >
+        {/* Moving content */}
         <div
-          className="pointer-events-none absolute left-0 right-0"
-          style={{ top: eyelineY, borderTop: '2px solid rgba(59,130,246,0.7)' }}
-        />
-      )}
-      {config.eyelineStyle === 'arrows' && (
-        <>
-          <div
-            className="pointer-events-none absolute text-accent"
-            style={{ top: `calc(${eyelineY} - 0.5em)`, left: 8, fontSize: '1.5rem' }}
-          >
-            ▶
-          </div>
-          <div
-            className="pointer-events-none absolute text-accent"
-            style={{ top: `calc(${eyelineY} - 0.5em)`, right: 8, fontSize: '1.5rem' }}
-          >
-            ◀
-          </div>
-        </>
-      )}
-      {config.eyelineStyle === 'gradient' && (
-        <div
-          className="pointer-events-none absolute inset-0"
+          ref={contentRef}
+          className="prompter-doc will-change-transform"
           style={{
-            background: `linear-gradient(to bottom,
-              rgba(0,0,0,${config.eyelineGradientIntensity}) 0%,
-              rgba(0,0,0,0) ${config.eyelineFrac * 100}%,
-              rgba(0,0,0,${config.eyelineGradientIntensity}) 100%)`,
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            marginLeft: 'auto',
+            marginRight: 'auto',
+            maxWidth: contentMaxWidth,
+            fontSize: config.fontSizePx,
+            lineHeight: config.lineHeight,
+            transform: 'translate3d(0,0,0)',
+            // Prompt mode / talent displays are pure animation — text can't be
+            // selected or highlighted here; that's an edit-mode-only affordance.
+            userSelect: 'none',
+            WebkitUserSelect: 'none',
           }}
         />
-      )}
 
-      {/* Focus box (Imaginary Teleprompter style): a clear reading band at the
-          eyeline framed by solid dimmed flaps above and below. Keeps the
-          interviewee's eye pinned to one line for steady eye contact. */}
-      {config.eyelineStyle === 'box' &&
-        (() => {
-          const bandPx = config.focusBoxHeightEm * config.fontSizePx
-          const dim = config.eyelineGradientIntensity
-          const topEdge = `calc(${config.eyelineFrac * 100}% - ${bandPx / 2}px)`
-          const bottomEdge = `calc(${config.eyelineFrac * 100}% + ${bandPx / 2}px)`
-          return (
-            <>
-              {/* dimmed flaps (hard-edged, like Imaginary's overlay rows) */}
-              <div
-                className="pointer-events-none absolute inset-0"
-                style={{
-                  background: `linear-gradient(to bottom,
-                    rgba(0,0,0,${dim}) 0, rgba(0,0,0,${dim}) ${topEdge},
-                    rgba(0,0,0,0) ${topEdge}, rgba(0,0,0,0) ${bottomEdge},
-                    rgba(0,0,0,${dim}) ${bottomEdge}, rgba(0,0,0,${dim}) 100%)`,
-                }}
-              />
-              {/* subtle frame lines marking the clear band edges */}
-              <div
-                className="pointer-events-none absolute left-0 right-0"
-                style={{ top: topEdge, borderTop: '1px solid rgba(255,255,255,0.18)' }}
-              />
-              <div
-                className="pointer-events-none absolute left-0 right-0"
-                style={{ top: bottomEdge, borderTop: '1px solid rgba(255,255,255,0.18)' }}
-              />
-            </>
-          )
-        })()}
+        {/* Eyeline indicator */}
+        {config.eyelineStyle === 'line' && (
+          <div
+            className="pointer-events-none absolute left-0 right-0"
+            style={{ top: eyelinePct, borderTop: '2px solid rgba(59,130,246,0.7)' }}
+          />
+        )}
+        {config.eyelineStyle === 'arrows' && (
+          <>
+            <div
+              className="pointer-events-none absolute text-accent"
+              style={{ top: `calc(${eyelinePct} - 0.5em)`, left: 8, fontSize: '1.5rem' }}
+            >
+              ▶
+            </div>
+            <div
+              className="pointer-events-none absolute text-accent"
+              style={{ top: `calc(${eyelinePct} - 0.5em)`, right: 8, fontSize: '1.5rem' }}
+            >
+              ◀
+            </div>
+          </>
+        )}
+        {config.eyelineStyle === 'gradient' && (
+          <div
+            className="pointer-events-none absolute inset-0"
+            style={{
+              background: `linear-gradient(to bottom,
+                rgba(0,0,0,${config.eyelineGradientIntensity}) 0%,
+                rgba(0,0,0,0) ${config.eyelineFrac * 100}%,
+                rgba(0,0,0,${config.eyelineGradientIntensity}) 100%)`,
+            }}
+          />
+        )}
 
-      {/* Blackout */}
-      {config.blackout && <div className="absolute inset-0 bg-black" />}
+        {/* Focus box: a clear reading band framed by dimmed flaps. */}
+        {config.eyelineStyle === 'box' &&
+          (() => {
+            const bandPx = config.focusBoxHeightEm * config.fontSizePx
+            const dim = config.eyelineGradientIntensity
+            const topEdge = `calc(${config.eyelineFrac * 100}% - ${bandPx / 2}px)`
+            const bottomEdge = `calc(${config.eyelineFrac * 100}% + ${bandPx / 2}px)`
+            return (
+              <>
+                <div
+                  className="pointer-events-none absolute inset-0"
+                  style={{
+                    background: `linear-gradient(to bottom,
+                      rgba(0,0,0,${dim}) 0, rgba(0,0,0,${dim}) ${topEdge},
+                      rgba(0,0,0,0) ${topEdge}, rgba(0,0,0,0) ${bottomEdge},
+                      rgba(0,0,0,${dim}) ${bottomEdge}, rgba(0,0,0,${dim}) 100%)`,
+                  }}
+                />
+                <div
+                  className="pointer-events-none absolute left-0 right-0"
+                  style={{ top: topEdge, borderTop: '1px solid rgba(255,255,255,0.18)' }}
+                />
+                <div
+                  className="pointer-events-none absolute left-0 right-0"
+                  style={{ top: bottomEdge, borderTop: '1px solid rgba(255,255,255,0.18)' }}
+                />
+              </>
+            )
+          })()}
+
+        {/* Blackout (fills the scene; the letterbox around it is already black) */}
+        {config.blackout && <div className="absolute inset-0 bg-black" />}
+      </div>
     </div>
   )
 }
 
-/** Find the word span nearest a given viewport Y, in content-local coords. */
+/** Find the word span nearest a given content-Y (scene px), in content coords. */
 function wordNearestY(
   content: HTMLElement,
   eyelineY: number,
 ): { wid: string; within: number } | null {
   const words = content.querySelectorAll<HTMLElement>('.word')
   if (words.length === 0) return null
-  // current transform offset:
   const m = /translate3d\(0px,\s*(-?[\d.]+)px/.exec(content.style.transform)
   const offset = m ? -Number(m[1]) : 0
   let best: HTMLElement | null = null
   let bestDist = Infinity
   words.forEach((w) => {
-    // Compare the word's vertical CENTRE to the eyeline (lines are centred).
     const screenY = w.offsetTop + w.offsetHeight / 2 - offset
     const dist = Math.abs(screenY - eyelineY)
     if (dist < bestDist) {

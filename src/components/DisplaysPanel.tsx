@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import { useStore } from '../store/useStore'
-import { defaultDisplayConfig } from '../store/types'
+import { defaultDisplayConfig, pickLayout } from '../store/types'
 import DisplaySettings from './DisplaySettings'
 import { nanoid } from 'nanoid'
 
@@ -65,7 +65,10 @@ export default function DisplaysPanel() {
     const id = screen?.id ?? `win-${nanoid(4)}`
     const label = screen?.label ?? `Display ${displays.length}`
     if (!displays.some((d) => d.id === id)) {
-      addDisplay(defaultDisplayConfig(id, label))
+      // Inherit the current SHARED reading layout so a new screen matches the
+      // others immediately; only its orientation starts at the defaults.
+      const layout = displays[0] ? pickLayout(displays[0]) : {}
+      addDisplay({ ...defaultDisplayConfig(id, label), ...layout })
     }
     const features = screen
       ? `left=${screen.left},top=${screen.top},width=${screen.width},height=${screen.height}`
